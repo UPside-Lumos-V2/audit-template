@@ -260,16 +260,10 @@ jobs:
           import "./${PROTOCOL}Base.sol";
           
           contract PoC_${auditor} is ${PROTOCOL}Base {
-              // Fill in your analysis
-              Analysis analysis = Analysis({
-                  vulnType: VulnerabilityType.UNKNOWN,
-                  attackVector: AttackVector.UNKNOWN,
-                  severityScore: 0,
-                  rootCause: ""
-              });
-          
-              function testExploit() public recordAnalysis("PoC_${auditor}", analysis) {
-                  // Implement your exploit logic
+              // Select vulnerability type (storage access auto-collected)
+              function testExploit() public exploit(VulnerabilityType.UNKNOWN) {
+                  // TODO: Change UNKNOWN to actual type
+                  // TODO: Implement exploit
               }
           }
           SOLEOF
