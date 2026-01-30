@@ -57,7 +57,7 @@ cat <<EOF > "$README_PATH"
 EOF
 echo "[+] Created README.md at $README_PATH"
 
-# 2. Create Exploit.t.sol Template (Enhanced)
+# 2. Create Exploit.t.sol Template (Enhanced with Metadata & Feature Mining)
 SOL_PATH="$TARGET_DIR/Exploit.t.sol"
 cat <<EOF > "$SOL_PATH"
 // SPDX-License-Identifier: UNLICENSED
@@ -66,8 +66,18 @@ pragma solidity ^0.8.10;
 import "src/shared/BaseTest.sol";
 import "src/shared/interfaces.sol";
 
-// @KeyInfo - Total Lost : N/A
-// @Analysis : https://...
+/*
+@Analysis-Start
+@Protocol: $PROTOCOL
+@Date: $DATE
+@Lost: 
+@Attacker: 
+@Target: 
+@TxHash: 
+@Analysis-End
+*/
+
+// @Analysis - https://...
 
 contract ${PROTOCOL}Exploit is BaseTest {
     // 1. Constants & Variables
@@ -77,15 +87,18 @@ contract ${PROTOCOL}Exploit is BaseTest {
         // 2. Fork Environment
         // vm.createSelectFork("mainnet", BLOCK_NUMBER); 
         
-        // 3. Labels
+        // 3. Config Target (for feature mining)
+        // targetContract = address(0x...);
+
+        // 4. Labels
         // vm.label(address(USDC), "USDC");
         
-        // 4. Config Funding Token (for balanceLog)
+        // 5. Config Funding Token (for balanceLog)
         // fundingToken = address(USDC);
     }
 
     function testExploit() public balanceLog {
-        // 5. Execute Attack
+        // 6. Execute Attack
         // ...
     }
 }
