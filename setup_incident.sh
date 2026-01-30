@@ -88,7 +88,7 @@ contract ${PROTOCOL}Exploit is BaseTest {
         // vm.createSelectFork("mainnet", BLOCK_NUMBER); 
         
         // 3. Config Target (for feature mining)
-        // targetContract = address(0x...);
+        // target = address(0x...);
 
         // 4. Labels
         // vm.label(address(USDC), "USDC");
