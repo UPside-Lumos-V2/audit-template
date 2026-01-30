@@ -989,25 +989,7 @@ interface AnyswapV4Router {
     ) external;
 }
 
-interface WETH_Legacy {
-    function approve(
-        address guy,
-        uint256 wad
-    ) external returns (bool);
 
-    function withdraw(
-        uint256 wad
-    ) external;
-
-    function balanceOf(
-        address
-    ) external view returns (uint256);
-
-    function transfer(
-        address dst,
-        uint256 wad
-    ) external returns (bool);
-}
 
 interface AnyswapV1ERC20 {
     function mint(
