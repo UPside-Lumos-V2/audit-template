@@ -802,7 +802,7 @@ interface AnyswapV4Router {
     ) external;
 }
 
-interface WETH {
+interface WETH_Legacy {
     function approve(address guy, uint256 wad) external returns (bool);
 
     function withdraw(
