@@ -1,4 +1,4 @@
-name: Incident
+name: Security Incident Handler
 
 on:
   issues:
@@ -10,16 +10,44 @@ permissions:
   pull-requests: write
 
 jobs:
-  initialize:
-    if: contains(github.event.issue.labels.*.name, 'incident')
+  setup:
+    if: contains(github.event.issue.labels.*.name, 'security-incident')
     runs-on: ubuntu-latest
     concurrency:
-      group: incident-init
+      group: incident-setup
       cancel-in-progress: false
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Ensure Labels
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const labels = [
+              { name: 'security-incident', color: 'b60205', description: 'Security incident report' },
+              { name: 'in-progress', color: 'fbca04', description: 'Analysis in progress' },
+              { name: 'verified', color: '0e8a16', description: 'Exploit verified' },
+              { name: 'completed', color: '5319e7', description: 'Analysis completed' }
+            ];
+            for (const label of labels) {
+              try {
+                await github.rest.issues.getLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: label.name
+                });
+              } catch (e) {
+                if (e.status === 404) {
+                  await github.rest.issues.createLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    ...label
+                  });
+                }
+              }
+            }
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
@@ -30,6 +58,8 @@ jobs:
         with:
           script: |
             const body = context.payload.issue.body || "";
+            const assignees = context.payload.issue.assignees || [];
+
             const extract = (regex) => {
               const match = body.match(regex);
               return match ? match[1].trim() : null;
@@ -37,22 +67,21 @@ jobs:
 
             const protocol = extract(/### Protocol\s*\n+(.*)/);
             const txhash = extract(/### Tx Hash\s*\n+(.*)/);
-            const auditorsRaw = extract(/### Auditors\s*\n+(.*)/);
             const chainRaw = extract(/### Chain\s*\n+(.*)/);
             const chainId = chainRaw ? chainRaw.match(/\((\d+)\)/)[1] : "1";
 
             if (!protocol || !txhash) {
-              core.setFailed("Missing required fields.");
+              core.setFailed("Missing required fields: Protocol or Tx Hash.");
               return;
             }
 
-            const auditors = auditorsRaw ? auditorsRaw.split(',').map(s => s.trim()).filter(s => s) : [];
+            const auditors = assignees.map(a => a.login).filter(s => s);
             if (auditors.length === 0) {
-              core.setFailed("At least one auditor required.");
+              core.setFailed("At least one assignee (auditor) required.");
               return;
             }
 
-            const newTitle = `[Incident]: ${protocol}`;
+            const newTitle = `[Incident] ${protocol}`;
             if (context.payload.issue.title !== newTitle) {
               await github.rest.issues.update({
                 owner: context.repo.owner,
@@ -62,11 +91,11 @@ jobs:
               });
             }
 
-            await github.rest.issues.addAssignees({
+            await github.rest.issues.addLabels({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              assignees: auditors
+              labels: ['in-progress']
             });
 
             core.setOutput("protocol", protocol);
@@ -75,7 +104,7 @@ jobs:
             core.setOutput("auditors", JSON.stringify(auditors));
 
       - name: Fetch Metadata
-        id: infura
+        id: metadata
         env:
           INFURA_KEY: ${{ secrets.INFURA_API_KEY }}
         run: |
@@ -166,15 +195,15 @@ jobs:
           git checkout -b ${{ env.TARGET_BRANCH }}
 
           PROTOCOL="${{ steps.parse.outputs.protocol }}"
-          DATE="${{ steps.infura.outputs.date }}"
-          BLOCK="${{ steps.infura.outputs.block_number }}"
-          FORK_BLOCK="${{ steps.infura.outputs.fork_block }}"
+          DATE="${{ steps.metadata.outputs.date }}"
+          BLOCK="${{ steps.metadata.outputs.block_number }}"
+          FORK_BLOCK="${{ steps.metadata.outputs.fork_block }}"
           CHAIN_ID="${{ steps.parse.outputs.chain_id }}"
           TXHASH="${{ steps.parse.outputs.txhash }}"
-          ATTACKER="${{ steps.infura.outputs.attacker }}"
-          TARGET="${{ steps.infura.outputs.target }}"
-          INPUT_DATA="${{ steps.infura.outputs.input_data }}"
-          RPC_ALIAS="${{ steps.infura.outputs.rpc_alias }}"
+          ATTACKER="${{ steps.metadata.outputs.attacker }}"
+          TARGET="${{ steps.metadata.outputs.target }}"
+          INPUT_DATA="${{ steps.metadata.outputs.input_data }}"
+          RPC_ALIAS="${{ steps.metadata.outputs.rpc_alias }}"
 
           DIR="test/${DATE}_${PROTOCOL}"
           mkdir -p "$DIR"
@@ -295,13 +324,27 @@ jobs:
           git commit -m "init: ${{ steps.parse.outputs.protocol }}"
           git push origin ${{ env.TARGET_BRANCH }}
 
+      - name: Update Labels
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const replayStatus = process.env.REPLAY_STATUS;
+            if (replayStatus === 'PASS') {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                labels: ['verified']
+              });
+            }
+
       - name: Notify
         uses: actions/github-script@v6
         with:
           script: |
             const branch = process.env.TARGET_BRANCH;
-            const block = "${{ steps.infura.outputs.block_number }}";
-            const date = "${{ steps.infura.outputs.date }}";
+            const block = "${{ steps.metadata.outputs.block_number }}";
+            const date = "${{ steps.metadata.outputs.date }}";
             const replayStatus = process.env.REPLAY_STATUS;
             const auditors = JSON.parse('${{ steps.parse.outputs.auditors }}');
             const mentions = auditors.map(a => `@${a}`).join(' ');
@@ -313,7 +356,7 @@ jobs:
             | Branch | \`${branch}\` |
             | Date | ${date} |
             | Block | ${block} |
-            | Replay | ${replayStatus} |
+            | Replay | ${replayStatus === 'PASS' ? '✅ Verified' : '❌ Failed'} |
 
             **Assigned:** ${mentions}
 

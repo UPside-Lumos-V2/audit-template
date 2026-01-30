@@ -1,6 +1,6 @@
-name: New Incident
-description: Initialize incident workspace
-labels: ["incident"]
+name: Security Incident
+description: Report a DeFi security incident for analysis
+labels: ["security-incident"]
 body:
   - type: input
     id: protocol
@@ -40,15 +40,12 @@ body:
     attributes:
       label: Tx Hash
       description: The exploit transaction hash
-      placeholder: 0x...
+      placeholder: "0x..."
     validations:
       required: true
 
-  - type: input
-    id: auditors
+  - type: markdown
     attributes:
-      label: Auditors
-      description: Comma-separated GitHub usernames (3 required)
-      placeholder: alice, bob, charlie
-    validations:
-      required: true
+      value: |
+        ---
+        **Note:** Assign auditors using the "Assignees" field on the right sidebar.

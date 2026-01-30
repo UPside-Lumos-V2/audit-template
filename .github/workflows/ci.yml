@@ -1,4 +1,4 @@
-name: Audit Analysis CI
+name: CI
 
 on:
   pull_request:
@@ -18,10 +18,10 @@ env:
 
 jobs:
   test:
-    name: Run Exploit Tests
+    name: Run Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
 
@@ -34,5 +34,4 @@ jobs:
         run: forge fmt --check
 
       - name: Run Tests
-        # Run tests with 3 verbosity levels to see traces on failure
         run: forge test -vvv
