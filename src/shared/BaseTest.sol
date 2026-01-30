@@ -7,6 +7,7 @@ import "forge-std/Test.sol";
 contract BaseTest is Test {
     address fundingToken = address(0);
     address target = address(0); // For metadata collection
+    address beneficiary = address(0); // For calculating profit
 
     struct ChainInfo {
         string name;
@@ -57,20 +58,22 @@ contract BaseTest is Test {
         address token,
         address account,
         string memory label
-    ) private {
+    ) internal {
         (string memory symbol, uint256 balance, uint8 decimals) = _getTokenData(token, account);
         emit log_named_decimal_uint(string(abi.encodePacked(label, " ", symbol, " Balance")), balance, decimals);
     }
 
     function _writeExecutionResult(
+        string memory tag,
         uint256 gasUsed,
         uint256 profit,
         string memory symbol,
         uint8 decimals
-    ) private {
+    ) internal {
         string memory jsonObj = "result";
 
         // 1. Context Features
+        vm.serializeString(jsonObj, "mode", tag);
         vm.serializeUint(jsonObj, "chain_id", block.chainid);
         vm.serializeUint(jsonObj, "block_number", block.number);
         vm.serializeUint(jsonObj, "block_timestamp", block.timestamp);
@@ -92,10 +95,16 @@ contract BaseTest is Test {
         string memory finalJson = vm.serializeBool(jsonObj, "success", true);
 
         // Generate Unique Filename
-        // Format: result_<block_timestamp>_<block_number>.json
+        // Format: result_<tag>_<block_timestamp>_<block_number>.json
         string memory fileName = string(
             abi.encodePacked(
-                "data/results/result_", vm.toString(block.timestamp), "_", vm.toString(block.number), ".json"
+                "data/results/result_", 
+                tag, 
+                "_", 
+                vm.toString(block.timestamp), 
+                "_", 
+                vm.toString(block.number), 
+                ".json"
             )
         );
 
@@ -103,24 +112,44 @@ contract BaseTest is Test {
         vm.writeJson(finalJson, fileName);
     }
 
+    // Default modifier for backward compatibility
     modifier balanceLog() {
         uint256 startGas = gasleft();
-        (string memory symbol, uint256 startBalance, uint8 decimals) = _getTokenData(fundingToken, address(this));
-
-        if (fundingToken == address(0)) vm.deal(address(this), 0);
-        _logTokenBalance(fundingToken, address(this), string(abi.encodePacked("Attacker Before exploit")));
+        address user = beneficiary == address(0) ? address(this) : beneficiary;
+        (string memory symbol, uint256 startBalance, uint8 decimals) = _getTokenData(fundingToken, user);
+        
+        if (fundingToken == address(0)) vm.deal(user, 0);
+        _logTokenBalance(fundingToken, user, "Attacker Before");
 
         _;
 
         uint256 endGas = gasleft();
         uint256 gasUsed = startGas - endGas;
-
-        (,, uint256 endBalance) = _getTokenData(fundingToken, address(this));
+        (,, uint256 endBalance) = _getTokenData(fundingToken, user);
         uint256 profit = endBalance > startBalance ? endBalance - startBalance : 0;
 
-        _logTokenBalance(fundingToken, address(this), string(abi.encodePacked("Attacker After exploit")));
+        _logTokenBalance(fundingToken, user, "Attacker After");
+        _writeExecutionResult("DEFAULT", gasUsed, profit, symbol, decimals);
+    }
 
-        _writeExecutionResult(gasUsed, profit, symbol, decimals);
+    // New modifier for tagged execution (Replay vs Logic)
+    modifier recordMetrics(string memory tag) {
+        uint256 startGas = gasleft();
+        address user = beneficiary == address(0) ? address(this) : beneficiary;
+        (string memory symbol, uint256 startBalance, uint8 decimals) = _getTokenData(fundingToken, user);
+        
+        if (fundingToken == address(0)) vm.deal(user, 0);
+        _logTokenBalance(fundingToken, user, string(abi.encodePacked("[", tag, "] Attacker Before")));
+
+        _;
+
+        uint256 endGas = gasleft();
+        uint256 gasUsed = startGas - endGas;
+        (,, uint256 endBalance) = _getTokenData(fundingToken, user);
+        uint256 profit = endBalance > startBalance ? endBalance - startBalance : 0;
+
+        _logTokenBalance(fundingToken, user, string(abi.encodePacked("[", tag, "] Attacker After")));
+        _writeExecutionResult(tag, gasUsed, profit, symbol, decimals);
     }
 
     function logTokenBalance(

@@ -56,7 +56,7 @@ cat <<EOF > "$README_PATH"
 EOF
 echo "[+] Created README.md at $README_PATH"
 
-# 2. Create Exploit.t.sol Template (Enhanced with Metadata & Feature Mining)
+# 2. Create Exploit.t.sol Template (Hybrid Mode: Replay + Logic)
 SOL_PATH="$TARGET_DIR/Exploit.t.sol"
 cat <<EOF > "$SOL_PATH"
 // SPDX-License-Identifier: UNLICENSED
@@ -76,7 +76,6 @@ import "src/shared/interfaces.sol";
 @Analysis-End
 */
 
-// @KeyInfo - Total Lost : N/A
 // @Analysis - https://...
 
 contract ${PROTOCOL}Exploit is BaseTest {
@@ -93,13 +92,34 @@ contract ${PROTOCOL}Exploit is BaseTest {
         // 4. Labels
         // vm.label(address(USDC), "USDC");
         
-        // 5. Config Funding Token (for balanceLog)
+        // 5. Config Funding Token & Beneficiary
         // fundingToken = address(USDC);
+        // beneficiary = address(this); // Set to 'attacker' if testing replay
     }
 
-    function testExploit() public balanceLog {
-        // 6. Execute Attack
-        // ...
+    // [Mode 1] Transaction Replay (Data Mining)
+    // Run: forge test --match-test testReplay -vvv
+    function testReplay() public recordMetrics("REPLAY") {
+        // beneficiary = attacker; // Update beneficiary to attacker
+        // vm.startPrank(attacker);
+        
+        // 1. Copy Input Data from Etherscan
+        // (bool success, ) = attackContract.call(hex"...");
+        // require(success, "Replay failed");
+        
+        // vm.stopPrank();
+    }
+
+    // [Mode 2] Logic Reproduction (Deep Dive)
+    // Run: forge test --match-test testExploit -vvv
+    function testExploit() public recordMetrics("LOGIC") {
+        // vm.startPrank(attacker);
+        
+        // 1. Implement Logic
+        // IVictim(target).deposit{value: 1 ether}();
+        // IVictim(target).withdraw();
+        
+        // vm.stopPrank();
     }
 }
 EOF
