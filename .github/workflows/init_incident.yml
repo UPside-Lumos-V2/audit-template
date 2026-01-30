@@ -1,0 +1,107 @@
+name: Initialize Incident Workspace
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  init_workspace:
+    if: contains(github.event.issue.labels.*.name, 'incident')
+    runs-on: ubuntu-latest
+    concurrency: 
+      group: incident-init
+      cancel-in-progress: false # Strictly sequential
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+
+      - name: Parse Issue Body
+        id: parse
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const body = context.payload.issue.body;
+            
+            // Helper to extract value by label ID/Header
+            const extract = (regex) => {
+              const match = body.match(regex);
+              return match ? match[1].trim() : null;
+            };
+
+            // Regex patterns based on Issue Template
+            const protocol = extract(/### Protocol Name\s*\n\s*(.*)/);
+            const date = extract(/### Incident Date\s*\n\s*(.*)/);
+            const txhash = extract(/### Transaction Hash\s*\n\s*(.*)/);
+            
+            // Extract Chain ID from dropdown (e.g., "Mainnet (1)")
+            const chainRaw = extract(/### Chain\s*\n\s*(.*)/);
+            const chainId = chainRaw ? chainRaw.match(/\((\d+)\)/)[1] : "1";
+
+            if (!protocol || !date || !txhash) {
+              core.setFailed("Missing required fields in issue body.");
+            }
+
+            core.setOutput("protocol", protocol);
+            core.setOutput("date", date);
+            core.setOutput("txhash", txhash);
+            core.setOutput("chain_id", chainId);
+            core.setOutput("member", context.payload.issue.user.login);
+
+      - name: Run Analyze Script (Auto Mode)
+        env:
+          # Use public RPCs or Secrets for high reliability
+          MAINNET_RPC_URL: ${{ secrets.MAINNET_RPC_URL || 'https://eth.llamarpc.com' }}
+          BSC_RPC_URL: ${{ secrets.BSC_RPC_URL || 'https://bsc-dataseed.binance.org' }}
+          ARBITRUM_RPC_URL: ${{ secrets.ARBITRUM_RPC_URL || 'https://arb1.arbitrum.io/rpc' }}
+          OPTIMISM_RPC_URL: ${{ secrets.OPTIMISM_RPC_URL || 'https://mainnet.optimism.io' }}
+          POLYGON_RPC_URL: ${{ secrets.POLYGON_RPC_URL || 'https://polygon-rpc.com' }}
+          AVALANCHE_RPC_URL: ${{ secrets.AVALANCHE_RPC_URL || 'https://api.avax.network/ext/bc/C/rpc' }}
+          FANTOM_RPC_URL: ${{ secrets.FANTOM_RPC_URL || 'https://rpc.ftm.tools' }}
+          BASE_RPC_URL: ${{ secrets.BASE_RPC_URL || 'https://mainnet.base.org' }}
+        run: |
+          # Configure Git for Commit
+          git config --global user.name "AuditBot"
+          git config --global user.email "bot@audit.org"
+
+          # Run Script with parsed inputs
+          ./analyze.sh \
+            -p "${{ steps.parse.outputs.protocol }}" \
+            -d "${{ steps.parse.outputs.date }}" \
+            -c "${{ steps.parse.outputs.chain_id }}" \
+            -t "${{ steps.parse.outputs.txhash }}" \
+            -m "${{ steps.parse.outputs.member }}" \
+            --auto
+
+      - name: Push Changes
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ env.TARGET_BRANCH }} # analyze.sh should export this env var if possible, or we infer
+
+      - name: Comment on Issue
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const protocol = "${{ steps.parse.outputs.protocol }}";
+            const date = "${{ steps.parse.outputs.date }}";
+            const branchName = `incident/${date}_${protocol}`;
+            
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `✅ **Workspace Initialized!**\n\n- **Branch:** \`${branchName}\`\n- **Base:** \`test/${date}_${protocol}/${protocol}Base.sol\`\n- **Replay:** \`test/${date}_${protocol}/Replay.t.sol\`\n\nRun the following to start:\n\`\`\`bash\ngit fetch origin\ngit checkout ${branchName}\n\`\`\``
+            });
