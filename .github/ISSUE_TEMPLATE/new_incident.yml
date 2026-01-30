@@ -17,7 +17,7 @@ body:
     attributes:
       label: Incident Date
       description: YYYY-MM-DD
-      placeholder: 2024-02-28
+      placeholder: "2024-02-28"
     validations:
       required: true
 
