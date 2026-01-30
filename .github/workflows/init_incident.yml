@@ -37,12 +37,19 @@ jobs:
 
             const protocol = extract(/### Protocol\s*\n+(.*)/);
             const txhash = extract(/### Tx Hash\s*\n+(.*)/);
+            const auditorsRaw = extract(/### Auditors\s*\n+(.*)/);
             
             const chainRaw = extract(/### Chain\s*\n+(.*)/);
             const chainId = chainRaw ? chainRaw.match(/\((\d+)\)/)[1] : "1";
 
             if (!protocol || !txhash) {
-              core.setFailed("Missing required fields.");
+              core.setFailed("Missing required fields: protocol or txhash.");
+              return;
+            }
+
+            const auditors = auditorsRaw ? auditorsRaw.split(',').map(s => s.trim()).filter(s => s) : [];
+            if (auditors.length === 0) {
+              core.setFailed("At least one auditor is required.");
               return;
             }
 
@@ -56,9 +63,18 @@ jobs:
               });
             }
 
+            // Auto-assign auditors
+            await github.rest.issues.addAssignees({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              assignees: auditors
+            });
+
             core.setOutput("protocol", protocol);
             core.setOutput("txhash", txhash);
             core.setOutput("chain_id", chainId);
+            core.setOutput("auditors", JSON.stringify(auditors));
 
       - name: Fetch Metadata
         id: infura
@@ -148,9 +164,29 @@ jobs:
             -b "${{ steps.infura.outputs.block_number }}" \
             -c "${{ steps.parse.outputs.chain_id }}" \
             -t "${{ steps.parse.outputs.txhash }}" \
-            -m "AuditBot" \
+            --auditors '${{ steps.parse.outputs.auditors }}' \
             --auto
           
+      - name: Verify Replay
+        id: verify
+        env:
+          MAINNET_RPC_URL: ${{ secrets.MAINNET_RPC_URL || 'https://eth.llamarpc.com' }}
+          BSC_RPC_URL: ${{ secrets.BSC_RPC_URL || 'https://bsc-dataseed.binance.org' }}
+          ARBITRUM_RPC_URL: ${{ secrets.ARBITRUM_RPC_URL || 'https://arb1.arbitrum.io/rpc' }}
+          OPTIMISM_RPC_URL: ${{ secrets.OPTIMISM_RPC_URL || 'https://mainnet.optimism.io' }}
+          POLYGON_RPC_URL: ${{ secrets.POLYGON_RPC_URL || 'https://polygon-rpc.com' }}
+          AVALANCHE_RPC_URL: ${{ secrets.AVALANCHE_RPC_URL || 'https://api.avax.network/ext/bc/C/rpc' }}
+          FANTOM_RPC_URL: ${{ secrets.FANTOM_RPC_URL || 'https://rpc.ftm.tools' }}
+          BASE_RPC_URL: ${{ secrets.BASE_RPC_URL || 'https://mainnet.base.org' }}
+        run: |
+          if forge test --match-test testReplay -vvv 2>&1 | tee replay_result.txt | grep -q "PASS"; then
+            echo "REPLAY_STATUS=PASS" >> $GITHUB_ENV
+          else
+            echo "REPLAY_STATUS=FAIL" >> $GITHUB_ENV
+          fi
+
+      - name: Commit and Push
+        run: |
           git add .
           git commit -m "chore: init workspace for ${{ steps.parse.outputs.protocol }}"
           git push origin ${{ env.TARGET_BRANCH }}
@@ -164,18 +200,24 @@ jobs:
             const date = "${{ steps.infura.outputs.date }}";
             const chainId = "${{ steps.parse.outputs.chain_id }}";
             const protocol = "${{ steps.parse.outputs.protocol }}";
+            const replayStatus = process.env.REPLAY_STATUS;
+            const auditors = JSON.parse('${{ steps.parse.outputs.auditors }}');
+            const auditorMentions = auditors.map(a => `@${a}`).join(' ');
             
             const comment = `**Workspace Ready**
-            
-            - **Branch:** \`${branch}\`
-            - **Date:** ${date}
-            - **Block:** ${block}
-            
-            Start analysis:
-            \`\`\`bash
-            git fetch origin && git checkout ${branch}
-            ./analyze.sh -p ${protocol} -d ${date} -c ${chainId} -t ${{ steps.parse.outputs.txhash }} -b ${block}
-            \`\`\``;
+
+| Item | Value |
+|------|-------|
+| Branch | \`${branch}\` |
+| Date | ${date} |
+| Block | ${block} |
+| Replay | ${replayStatus} |
+
+**Assigned:** ${auditorMentions}
+
+\`\`\`bash
+git fetch origin && git checkout ${branch}
+\`\`\``;
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,

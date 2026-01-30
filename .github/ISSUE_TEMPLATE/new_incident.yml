@@ -43,3 +43,12 @@ body:
       placeholder: 0x...
     validations:
       required: true
+
+  - type: input
+    id: auditors
+    attributes:
+      label: Auditors
+      description: Comma-separated GitHub usernames (3 required)
+      placeholder: alice, bob, charlie
+    validations:
+      required: true

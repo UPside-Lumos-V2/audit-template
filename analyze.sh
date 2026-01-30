@@ -2,7 +2,7 @@
 
 # analyze.sh
 # Core analysis script for incident response
-# Usage: ./analyze.sh -p <Protocol> -d <Date> -c <ChainID> -t <TxHash> -m <Member> [-b <Block>] [--auto]
+# Usage: ./analyze.sh -p <Protocol> -d <Date> -c <ChainID> -t <TxHash> [-m <Member>] [-b <Block>] [--auditors <JSON>] [--auto]
 
 # Default values
 PROTOCOL=""
@@ -11,6 +11,7 @@ CHAIN_ID="1"
 TX_HASH=""
 MEMBER_NAME=""
 BLOCK_NUMBER=""
+AUDITORS=""
 AUTO_MODE=0
 
 # Constants
@@ -21,20 +22,17 @@ info() { echo "Info: $1"; }
 warn() { echo "Warning: $1"; }
 
 # Parse flags
-while getopts "p:d:c:t:m:b:a-:" opt; do
-  case $opt in
-    p) PROTOCOL="$OPTARG" ;;
-    d) DATE="$OPTARG" ;;
-    c) CHAIN_ID="$OPTARG" ;;
-    t) TX_HASH="$OPTARG" ;;
-    m) MEMBER_NAME="$OPTARG" ;;
-    b) BLOCK_NUMBER="$OPTARG" ;;
-    -) # Handle long options like --auto
-        case "${OPTARG}" in
-            auto) AUTO_MODE=1 ;;
-            *) die "Unknown option --${OPTARG}" ;;
-        esac ;;
-    \?) die "Invalid option -$OPTARG" ;;
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    -p) PROTOCOL="$2"; shift 2 ;;
+    -d) DATE="$2"; shift 2 ;;
+    -c) CHAIN_ID="$2"; shift 2 ;;
+    -t) TX_HASH="$2"; shift 2 ;;
+    -m) MEMBER_NAME="$2"; shift 2 ;;
+    -b) BLOCK_NUMBER="$2"; shift 2 ;;
+    --auditors) AUDITORS="$2"; shift 2 ;;
+    --auto) AUTO_MODE=1; shift ;;
+    *) die "Unknown option $1" ;;
   esac
 done
 
@@ -42,19 +40,20 @@ done
 # 1. Identity & Input
 # ==========================================
 
-# Resolve Member Name
-if [ -z "$MEMBER_NAME" ]; then
-    if [ "$AUTO_MODE" -eq "1" ]; then
-        die "Member name required in Auto Mode (-m)"
-    else
-        GIT_USER=$(git config user.name)
-        read -p "Enter your name [Default: $GIT_USER]: " INPUT_MEMBER
-        MEMBER_NAME=${INPUT_MEMBER:-$GIT_USER}
+# Resolve Member Name (only needed if --auditors not provided)
+if [ -z "$AUDITORS" ]; then
+    if [ -z "$MEMBER_NAME" ]; then
+        if [ "$AUTO_MODE" -eq "1" ]; then
+            die "Member name (-m) or auditors (--auditors) required in Auto Mode"
+        else
+            GIT_USER=$(git config user.name)
+            read -p "Enter your name [Default: $GIT_USER]: " INPUT_MEMBER
+            MEMBER_NAME=${INPUT_MEMBER:-$GIT_USER}
+        fi
     fi
+    # Sanitize Member Name
+    MEMBER_NAME=${MEMBER_NAME// /_}
 fi
-
-# Sanitize Member Name
-MEMBER_NAME=${MEMBER_NAME// /_}
 
 # Validation
 [ -z "$PROTOCOL" ] && die "Protocol name is required."
@@ -178,9 +177,37 @@ mkdir -p "$TARGET_DIR"
 BASE_PATH="$TARGET_DIR/${PROTOCOL}Base.sol"
 REPLAY_PATH="$TARGET_DIR/Replay.t.sol"
 README_PATH="$TARGET_DIR/README.md"
-POC_PATH="$TARGET_DIR/PoC_${MEMBER_NAME}.t.sol"
+INCIDENT_JSON="$TARGET_DIR/incident.json"
 
-# A. Base Contract
+# A. incident.json (Feature Schema)
+if [ ! -f "$INCIDENT_JSON" ]; then
+    if [ -n "$AUDITORS" ]; then
+        AUDITORS_JSON="$AUDITORS"
+    else
+        AUDITORS_JSON="[\"$MEMBER_NAME\"]"
+    fi
+    
+    cat <<EOF > "$INCIDENT_JSON"
+{
+  "version": "1.0",
+  "fixed": {
+    "protocol": "$PROTOCOL",
+    "chain_id": $CHAIN_ID,
+    "tx_hash": "$TX_HASH",
+    "block_number": $BLOCK_NUMBER_DEC,
+    "date": "$DATE",
+    "attacker": "$ATTACKER",
+    "victim": "$TARGET"
+  },
+  "auditors": $AUDITORS_JSON,
+  "labeled": {},
+  "derived": {}
+}
+EOF
+    info "Created incident.json"
+fi
+
+# B. Base Contract
 if [ ! -f "$BASE_PATH" ]; then
     cat <<EOF > "$BASE_PATH"
 // SPDX-License-Identifier: UNLICENSED
@@ -216,7 +243,7 @@ EOF
     info "Created Base"
 fi
 
-# B. Replay Test
+# C. Replay Test
 if [ ! -f "$REPLAY_PATH" ]; then
     cat <<EOF > "$REPLAY_PATH"
 // SPDX-License-Identifier: UNLICENSED
@@ -248,8 +275,14 @@ EOF
     info "Created Replay"
 fi
 
-# C. README
+# D. README
 if [ ! -f "$README_PATH" ]; then
+    if [ -n "$AUDITORS" ]; then
+        AUDITOR_LIST=$(echo "$AUDITORS" | jq -r '.[] | "- [ ] @\(.)"' 2>/dev/null || echo "- [ ] $MEMBER_NAME")
+    else
+        AUDITOR_LIST="- [ ] $MEMBER_NAME"
+    fi
+    
     cat <<EOF > "$README_PATH"
 # $PROTOCOL Incident Analysis
 
@@ -260,34 +293,52 @@ if [ ! -f "$README_PATH" ]; then
 - **Attacker:** \`$ATTACKER\`
 - **Target:** \`$TARGET\`
 
-## 2. Status
-- [x] Initialized by $MEMBER_NAME
+## 2. Assigned Auditors
+$AUDITOR_LIST
+
+## 3. Status
+- [x] Workspace initialized
+- [ ] Replay verified
+- [ ] PoC completed
 EOF
     info "Created README"
 fi
 
-# D. Personal PoC
-if [ ! -f "$POC_PATH" ]; then
-    cat <<EOF > "$POC_PATH"
+# E. Personal PoC files
+generate_poc() {
+    local AUDITOR_NAME="$1"
+    local POC_PATH="$TARGET_DIR/PoC_${AUDITOR_NAME}.t.sol"
+    
+    if [ ! -f "$POC_PATH" ]; then
+        cat <<EOF > "$POC_PATH"
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.10;
 
 import "./${PROTOCOL}Base.sol";
 
-contract PoC_${MEMBER_NAME} is ${PROTOCOL}Base {
+contract PoC_${AUDITOR_NAME} is ${PROTOCOL}Base {
     function setUp() public override {
         super.setUp();
     }
 
-    // Deep Dive Analysis
-    function testExploit() public recordMetrics("PoC_${MEMBER_NAME}") {
+    // Deep Dive Analysis by ${AUDITOR_NAME}
+    function testExploit() public recordMetrics("PoC_${AUDITOR_NAME}") {
         // vm.startPrank(attacker);
         // Implement logic here...
         // vm.stopPrank();
     }
 }
 EOF
-    info "Created PoC"
+        info "Created PoC for $AUDITOR_NAME"
+    fi
+}
+
+if [ -n "$AUDITORS" ]; then
+    for auditor in $(echo "$AUDITORS" | jq -r '.[]' 2>/dev/null); do
+        generate_poc "$auditor"
+    done
+else
+    generate_poc "$MEMBER_NAME"
 fi
 
 # ==========================================
