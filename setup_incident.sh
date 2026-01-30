@@ -1,8 +1,7 @@
 #!/bin/bash
 
-# setup_incident.sh
-# Usage: ./setup_incident.sh <ProtocolName> [Date: YYYY-MM-DD]
-# Example: ./setup_incident.sh Seneca 2024-02-28
+# Setup Incident Environment
+# Usage: ./setup_incident.sh <Protocol> [Date]
 
 PROTOCOL=$1
 DATE=$2
@@ -77,6 +76,7 @@ import "src/shared/interfaces.sol";
 @Analysis-End
 */
 
+// @KeyInfo - Total Lost : N/A
 // @Analysis - https://...
 
 contract ${PROTOCOL}Exploit is BaseTest {

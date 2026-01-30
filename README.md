@@ -1,65 +1,48 @@
-# Audit Template Collaboration Guide
+# Audit Collaboration Template
 
-## 🎯 Goal
-This repository is designed for high-pressure **Incident Response** collaboration.
-We use a **"1 Incident = 1 Directory"** structure to minimize merge conflicts and archive all analyses effectively.
+**Collaborative Incident Response Environment**
+Designed for "1 Incident = 1 Directory" structure to minimize conflicts and enable automated data mining.
 
-## 📂 Structure
-```text
-audit-template/
-├── src/
-│   └── shared/               # Shared Interfaces (IERC20, etc.)
-├── test/
-│   └── 2024/
-│       └── 02/
-│           └── Seneca/       # Independent Incident Package
-│               ├── Exploit.t.sol
-│               └── README.md
-└── setup_incident.sh         # Automation Script
-```
+## 🚀 Quick Start
 
-## 🚀 Workflow
-
-### 1. New Incident
-When a hack occurs, run the setup script to generate the environment.
-
+### 1. Initialize Incident
 ```bash
-# Usage: ./setup_incident.sh <ProtocolName> [Date]
+# Creates test/YYYY/MM/ProtocolName with templates
+./setup_incident.sh <ProtocolName> [Date]
+
+# Example
 ./setup_incident.sh Seneca 2024-02-28
 ```
-This creates `test/2024/02/Seneca` with a README and Test template.
 
-### 2. Feature Branch
-Create a branch for the incident.
-```bash
-git checkout -b incident/2024-02-28-seneca
+### 2. Fill Metadata (Important)
+Edit `test/.../Exploit.t.sol` header for automated labeling.
+```solidity
+/*
+@Analysis-Start
+@Protocol: Seneca
+@Date: 2024-02-28
+@Lost: 10M USD
+@Attacker: 0x...
+@Target: 0x...
+@TxHash: 0x...
+@Analysis-End
+*/
 ```
 
-### 3. Analyze & PoC
-- Fill in `README.md` with attack details.
-- Write reproduction code in `Exploit.t.sol`.
-- Use `src/shared/interfaces.sol` for common tokens/interfaces.
-
-### 4. PR & Merge
-- Open a Pull Request (PR) with a screenshot of the PoC passing.
-- CI will automatically run `forge test` to verify your code.
-- Merge into `main` only when verified.
-
-## 🛠 Setup
-
-### Prerequisites
-- [Foundry](https://github.com/foundry-rs/foundry) installed.
-
-### Installation
+### 3. Write & Run PoC
 ```bash
-forge install
-```
-
-### Running Tests
-```bash
+# Run tests
 forge test
-```
-To run a specific incident:
-```bash
+
+# Run specific incident
 forge test --match-path test/2024/02/Seneca/Exploit.t.sol -vvv
 ```
+
+## 🛠 Features
+
+- **Conflict-Free:** Isolated directory per incident.
+- **Auto-Mining:** `BaseTest` automatically records execution metrics (Gas, Profit, Code Size) to `data/results/`.
+- **Pre-loaded Libs:** `IERC20`, `IUniswapV2`, etc. ready to use in `src/shared/interfaces.sol`.
+
+## 📦 Requirements
+- [Foundry](https://github.com/foundry-rs/foundry)
