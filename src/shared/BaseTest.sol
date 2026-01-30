@@ -33,7 +33,9 @@ contract BaseTest is Test {
         chainIdToInfo[1329] = ChainInfo("SEI", "SEI");
     }
 
-    function getChainSymbol(uint256 chainId) internal view returns (string memory symbol) {
+    function getChainSymbol(
+        uint256 chainId
+    ) internal view returns (string memory symbol) {
         symbol = chainIdToInfo[chainId].symbol;
         if (bytes(symbol).length == 0) symbol = "ETH";
     }
@@ -53,7 +55,11 @@ contract BaseTest is Test {
         }
     }
 
-    function _logTokenBalance(address token, address account, string memory label) internal {
+    function _logTokenBalance(
+        address token,
+        address account,
+        string memory label
+    ) internal {
         (string memory symbol, uint256 balance, uint8 decimals) = _getTokenData(token, account);
         emit log_named_decimal_uint(string(abi.encodePacked(label, " ", symbol, " Balance")), balance, decimals);
     }
@@ -144,10 +150,9 @@ contract BaseTest is Test {
 
         vm.writeJson(finalJson, fileName);
 
-        string memory storageFile = string(
-            abi.encodePacked("data/results/storage_", tag, "_", vm.toString(block.timestamp), ".json")
-        );
-        string memory storageJson = string(abi.encodePacked('{"reads":', readsJson, ',"writes":', writesJson, '}'));
+        string memory storageFile =
+            string(abi.encodePacked("data/results/storage_", tag, "_", vm.toString(block.timestamp), ".json"));
+        string memory storageJson = string(abi.encodePacked('{"reads":', readsJson, ',"writes":', writesJson, "}"));
         vm.writeFile(storageFile, storageJson);
     }
 
@@ -162,14 +167,16 @@ contract BaseTest is Test {
         _;
 
         uint256 gasUsed = startGas - gasleft();
-        (, , uint256 endBalance) = _getTokenData(fundingToken, user);
+        (,, uint256 endBalance) = _getTokenData(fundingToken, user);
         uint256 profit = endBalance > startBalance ? endBalance - startBalance : 0;
 
         _logTokenBalance(fundingToken, user, "After");
         _writeExecutionResult("DEFAULT", gasUsed, profit, symbol, decimals);
     }
 
-    modifier recordMetrics(string memory tag) {
+    modifier recordMetrics(
+        string memory tag
+    ) {
         uint256 startGas = gasleft();
         address user = beneficiary == address(0) ? address(this) : beneficiary;
         (string memory symbol, uint256 startBalance, uint8 decimals) = _getTokenData(fundingToken, user);
@@ -180,14 +187,16 @@ contract BaseTest is Test {
         _;
 
         uint256 gasUsed = startGas - gasleft();
-        (, , uint256 endBalance) = _getTokenData(fundingToken, user);
+        (,, uint256 endBalance) = _getTokenData(fundingToken, user);
         uint256 profit = endBalance > startBalance ? endBalance - startBalance : 0;
 
         _logTokenBalance(fundingToken, user, string(abi.encodePacked("[", tag, "] After")));
         _writeExecutionResult(tag, gasUsed, profit, symbol, decimals);
     }
 
-    modifier exploit(VulnerabilityType vuln) {
+    modifier exploit(
+        VulnerabilityType vuln
+    ) {
         vm.record();
 
         uint256 startGas = gasleft();
@@ -200,7 +209,7 @@ contract BaseTest is Test {
         _;
 
         uint256 gasUsed = startGas - gasleft();
-        (, , uint256 endBalance) = _getTokenData(fundingToken, user);
+        (,, uint256 endBalance) = _getTokenData(fundingToken, user);
         uint256 profit = endBalance > startBalance ? endBalance - startBalance : 0;
 
         (bytes32[] memory reads, bytes32[] memory writes) = vm.accesses(target);
@@ -209,11 +218,19 @@ contract BaseTest is Test {
         _writeExploitResult("EXPLOIT", vuln, gasUsed, profit, symbol, decimals, reads, writes);
     }
 
-    function logTokenBalance(address token, address account, string memory label) internal {
+    function logTokenBalance(
+        address token,
+        address account,
+        string memory label
+    ) internal {
         _logTokenBalance(token, account, label);
     }
 
-    function logMultipleTokenBalances(address[] memory tokens, address account, string memory label) internal {
+    function logMultipleTokenBalances(
+        address[] memory tokens,
+        address account,
+        string memory label
+    ) internal {
         emit log_string(string(abi.encodePacked("=== ", label, " ===")));
         for (uint256 i = 0; i < tokens.length; i++) {
             _logTokenBalance(tokens[i], account, "");

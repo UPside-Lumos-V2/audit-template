@@ -82,32 +82,31 @@ jobs:
           CHAIN_ID="${{ steps.parse.outputs.chain_id }}"
           TXHASH="${{ steps.parse.outputs.txhash }}"
 
-          if [ -z "$INFURA_KEY" ]; then
-            echo "::error::INFURA_API_KEY not set."
-            exit 1
-          fi
-
           case $CHAIN_ID in
-            1)           PREFIX="mainnet" ;;
-            59144)       PREFIX="linea-mainnet" ;;
-            137)         PREFIX="polygon-mainnet" ;;
-            8453)        PREFIX="base-mainnet" ;;
-            81457)       PREFIX="blast-mainnet" ;;
-            10)          PREFIX="optimism-mainnet" ;;
-            42161)       PREFIX="arbitrum-mainnet" ;;
-            43114)       PREFIX="avalanche-mainnet" ;;
-            56)          PREFIX="bsc-mainnet" ;;
-            42220)       PREFIX="celo-mainnet" ;;
-            324)         PREFIX="zksync-mainnet" ;;
-            5000)        PREFIX="mantle-mainnet" ;;
-            204)         PREFIX="opbnb-mainnet" ;;
-            534352)      PREFIX="scroll-mainnet" ;;
-            1329)        PREFIX="sei-mainnet" ;;
-            11297108109) PREFIX="palm-mainnet" ;;
+            1)           PREFIX="mainnet"; DEFAULT_RPC="https://eth.llamarpc.com" ;;
+            59144)       PREFIX="linea-mainnet"; DEFAULT_RPC="https://rpc.linea.build" ;;
+            137)         PREFIX="polygon-mainnet"; DEFAULT_RPC="https://polygon-rpc.com" ;;
+            8453)        PREFIX="base-mainnet"; DEFAULT_RPC="https://mainnet.base.org" ;;
+            81457)       PREFIX="blast-mainnet"; DEFAULT_RPC="https://rpc.blast.io" ;;
+            10)          PREFIX="optimism-mainnet"; DEFAULT_RPC="https://mainnet.optimism.io" ;;
+            42161)       PREFIX="arbitrum-mainnet"; DEFAULT_RPC="https://arb1.arbitrum.io/rpc" ;;
+            43114)       PREFIX="avalanche-mainnet"; DEFAULT_RPC="https://api.avax.network/ext/bc/C/rpc" ;;
+            56)          PREFIX="bsc-mainnet"; DEFAULT_RPC="https://bsc-dataseed.binance.org" ;;
+            42220)       PREFIX="celo-mainnet"; DEFAULT_RPC="https://forno.celo.org" ;;
+            324)         PREFIX="zksync-mainnet"; DEFAULT_RPC="https://mainnet.era.zksync.io" ;;
+            5000)        PREFIX="mantle-mainnet"; DEFAULT_RPC="https://rpc.mantle.xyz" ;;
+            204)         PREFIX="opbnb-mainnet"; DEFAULT_RPC="https://opbnb-mainnet-rpc.binance.org" ;;
+            534352)      PREFIX="scroll-mainnet"; DEFAULT_RPC="https://rpc.scroll.io" ;;
+            1329)        PREFIX="sei-mainnet"; DEFAULT_RPC="https://evm.sei.io" ;;
+            11297108109) PREFIX="palm-mainnet"; DEFAULT_RPC="https://palm-mainnet.public.blastapi.io" ;;
             *) echo "::error::Unsupported chain: $CHAIN_ID"; exit 1 ;;
           esac
 
-          RPC_URL="https://${PREFIX}.infura.io/v3/$INFURA_KEY"
+          if [ -n "$INFURA_KEY" ]; then
+            RPC_URL="https://${PREFIX}.infura.io/v3/$INFURA_KEY"
+          else
+            RPC_URL="$DEFAULT_RPC"
+          fi
 
           TX_RES=$(curl -s -X POST -H "Content-Type: application/json" \
             --data "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getTransactionByHash\",\"params\":[\"$TXHASH\"],\"id\":1}" \
@@ -263,15 +262,27 @@ jobs:
       - name: Verify Replay
         id: verify
         env:
-          MAINNET_RPC_URL: ${{ secrets.MAINNET_RPC_URL || 'https://eth.llamarpc.com' }}
-          BSC_RPC_URL: ${{ secrets.BSC_RPC_URL || 'https://bsc-dataseed.binance.org' }}
-          ARBITRUM_RPC_URL: ${{ secrets.ARBITRUM_RPC_URL || 'https://arb1.arbitrum.io/rpc' }}
-          OPTIMISM_RPC_URL: ${{ secrets.OPTIMISM_RPC_URL || 'https://mainnet.optimism.io' }}
-          POLYGON_RPC_URL: ${{ secrets.POLYGON_RPC_URL || 'https://polygon-rpc.com' }}
-          AVALANCHE_RPC_URL: ${{ secrets.AVALANCHE_RPC_URL || 'https://api.avax.network/ext/bc/C/rpc' }}
-          FANTOM_RPC_URL: ${{ secrets.FANTOM_RPC_URL || 'https://rpc.ftm.tools' }}
-          BASE_RPC_URL: ${{ secrets.BASE_RPC_URL || 'https://mainnet.base.org' }}
+          INFURA_KEY: ${{ secrets.INFURA_API_KEY }}
         run: |
+          if [ -n "$INFURA_KEY" ]; then
+            export MAINNET_RPC_URL="https://mainnet.infura.io/v3/$INFURA_KEY"
+            export BSC_RPC_URL="https://bsc-mainnet.infura.io/v3/$INFURA_KEY"
+            export ARBITRUM_RPC_URL="https://arbitrum-mainnet.infura.io/v3/$INFURA_KEY"
+            export OPTIMISM_RPC_URL="https://optimism-mainnet.infura.io/v3/$INFURA_KEY"
+            export POLYGON_RPC_URL="https://polygon-mainnet.infura.io/v3/$INFURA_KEY"
+            export AVALANCHE_RPC_URL="https://avalanche-mainnet.infura.io/v3/$INFURA_KEY"
+            export FANTOM_RPC_URL="https://fantom-mainnet.infura.io/v3/$INFURA_KEY"
+            export BASE_RPC_URL="https://base-mainnet.infura.io/v3/$INFURA_KEY"
+          else
+            export MAINNET_RPC_URL="https://eth.llamarpc.com"
+            export BSC_RPC_URL="https://bsc-dataseed.binance.org"
+            export ARBITRUM_RPC_URL="https://arb1.arbitrum.io/rpc"
+            export OPTIMISM_RPC_URL="https://mainnet.optimism.io"
+            export POLYGON_RPC_URL="https://polygon-rpc.com"
+            export AVALANCHE_RPC_URL="https://api.avax.network/ext/bc/C/rpc"
+            export FANTOM_RPC_URL="https://rpc.ftm.tools"
+            export BASE_RPC_URL="https://mainnet.base.org"
+          fi
           if forge test --match-test testReplay -vvv 2>&1 | tee replay_result.txt | grep -q "PASS"; then
             echo "REPLAY_STATUS=PASS" >> $GITHUB_ENV
           else
