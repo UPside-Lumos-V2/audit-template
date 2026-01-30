@@ -6,7 +6,7 @@ import "forge-std/Test.sol";
 
 contract BaseTest is Test {
     address fundingToken = address(0);
-    address targetContract = address(0); // For metadata collection
+    address target = address(0); // For metadata collection
 
     struct ChainInfo {
         string name;
@@ -85,7 +85,7 @@ contract BaseTest is Test {
         vm.serializeAddress(jsonObj, "token_address", fundingToken);
 
         // 4. Static Analysis Features (Code Size)
-        uint256 victimCodeSize = targetContract == address(0) ? 0 : targetContract.code.length;
+        uint256 victimCodeSize = target == address(0) ? 0 : target.code.length;
         vm.serializeUint(jsonObj, "victim_code_size", victimCodeSize);
 
         // Success Flag
@@ -103,7 +103,7 @@ contract BaseTest is Test {
         vm.writeJson(finalJson, fileName);
     }
 
-    modifier balanceLog() virtual {
+    modifier balanceLog() {
         uint256 startGas = gasleft();
         (string memory symbol, uint256 startBalance, uint8 decimals) = _getTokenData(fundingToken, address(this));
 
