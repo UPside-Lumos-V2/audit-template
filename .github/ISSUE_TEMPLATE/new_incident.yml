@@ -1,23 +1,14 @@
-name: New Incident Report
-description: Initialize a new incident workspace for analysis
-title: "[Incident]: <Protocol Name>"
+name: Incident Report
+description: Create a new workspace for incident analysis
+title: "Incident Report"
 labels: ["incident"]
 body:
   - type: input
     id: protocol
     attributes:
-      label: Protocol Name
-      description: The name of the victim protocol (e.g., Seneca)
+      label: Protocol
+      description: Target protocol name (e.g. Seneca)
       placeholder: Seneca
-    validations:
-      required: true
-  
-  - type: input
-    id: date
-    attributes:
-      label: Incident Date
-      description: YYYY-MM-DD
-      placeholder: "2024-02-28"
     validations:
       required: true
 
@@ -26,23 +17,30 @@ body:
     attributes:
       label: Chain
       options:
-        - Mainnet (1)
-        - BSC (56)
-        - Arbitrum (42161)
+        - Ethereum Mainnet (1)
+        - Base Mainnet (8453)
+        - Arbitrum One (42161)
         - Optimism (10)
         - Polygon (137)
-        - Avalanche (43114)
-        - Fantom (250)
-        - Base (8453)
+        - BSC Mainnet (56)
+        - Avalanche C-Chain (43114)
+        - Linea (59144)
         - Blast (81457)
+        - Celo (42220)
+        - ZKsync Era (324)
+        - Mantle (5000)
+        - opBNB (204)
+        - Scroll (534352)
+        - Sei (1329)
+        - Palm (11297108109)
     validations:
       required: true
 
   - type: input
     id: txhash
     attributes:
-      label: Transaction Hash
-      description: The hash of the exploit transaction
+      label: Tx Hash
+      description: The exploit transaction hash
       placeholder: 0x...
     validations:
       required: true

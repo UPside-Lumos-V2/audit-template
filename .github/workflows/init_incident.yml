@@ -1,4 +1,4 @@
-name: Initialize Incident Workspace
+name: Incident
 
 on:
   issues:
@@ -10,59 +10,123 @@ permissions:
   pull-requests: write
 
 jobs:
-  init_workspace:
+  initialize:
     if: contains(github.event.issue.labels.*.name, 'incident')
     runs-on: ubuntu-latest
     concurrency: 
       group: incident-init
-      cancel-in-progress: false # Strictly sequential
+      cancel-in-progress: false
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: nightly
 
-      - name: Parse Issue Body
+      - name: Parse Issue
         id: parse
         uses: actions/github-script@v6
         with:
           script: |
-            const body = context.payload.issue.body;
-            
-            // Helper to extract value by label ID/Header
+            const body = context.payload.issue.body || "";
             const extract = (regex) => {
               const match = body.match(regex);
               return match ? match[1].trim() : null;
             };
 
-            // Regex patterns based on Issue Template
-            const protocol = extract(/### Protocol Name\s*\n\s*(.*)/);
-            const date = extract(/### Incident Date\s*\n\s*(.*)/);
-            const txhash = extract(/### Transaction Hash\s*\n\s*(.*)/);
+            const protocol = extract(/### Protocol\s*\n+(.*)/);
+            const txhash = extract(/### Tx Hash\s*\n+(.*)/);
             
-            // Extract Chain ID from dropdown (e.g., "Mainnet (1)")
-            const chainRaw = extract(/### Chain\s*\n\s*(.*)/);
+            const chainRaw = extract(/### Chain\s*\n+(.*)/);
             const chainId = chainRaw ? chainRaw.match(/\((\d+)\)/)[1] : "1";
 
-            if (!protocol || !date || !txhash) {
-              core.setFailed("Missing required fields in issue body.");
+            if (!protocol || !txhash) {
+              core.setFailed("Missing required fields.");
+              return;
+            }
+
+            const newTitle = `[Incident]: ${protocol}`;
+            if (context.payload.issue.title !== newTitle) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                title: newTitle
+              });
             }
 
             core.setOutput("protocol", protocol);
-            core.setOutput("date", date);
             core.setOutput("txhash", txhash);
             core.setOutput("chain_id", chainId);
-            core.setOutput("member", context.payload.issue.user.login);
 
-      - name: Run Analyze Script (Auto Mode)
+      - name: Fetch Metadata
+        id: infura
         env:
-          # Use public RPCs or Secrets for high reliability
+          INFURA_KEY: ${{ secrets.INFURA_API_KEY }}
+        run: |
+          CHAIN_ID="${{ steps.parse.outputs.chain_id }}"
+          TXHASH="${{ steps.parse.outputs.txhash }}"
+
+          if [ -z "$INFURA_KEY" ]; then
+            echo "::error::INFURA_API_KEY is not set."
+            exit 1
+          fi
+
+          case $CHAIN_ID in
+            1)           PREFIX="mainnet" ;;
+            59144)       PREFIX="linea-mainnet" ;;
+            137)         PREFIX="polygon-mainnet" ;;
+            8453)        PREFIX="base-mainnet" ;;
+            81457)       PREFIX="blast-mainnet" ;;
+            10)          PREFIX="optimism-mainnet" ;;
+            42161)       PREFIX="arbitrum-mainnet" ;;
+            43114)       PREFIX="avalanche-mainnet" ;;
+            56)          PREFIX="bsc-mainnet" ;;
+            42220)       PREFIX="celo-mainnet" ;;
+            324)         PREFIX="zksync-mainnet" ;;
+            5000)        PREFIX="mantle-mainnet" ;;
+            204)         PREFIX="opbnb-mainnet" ;;
+            534352)      PREFIX="scroll-mainnet" ;;
+            1329)        PREFIX="sei-mainnet" ;;
+            11297108109) PREFIX="palm-mainnet" ;;
+            *) echo "::error::Unsupported Chain ID: $CHAIN_ID"; exit 1 ;;
+          esac
+
+          RPC_URL="https://${PREFIX}.infura.io/v3/$INFURA_KEY"
+
+          # 1. Get Block Number
+          TX_RES=$(curl -s -X POST -H "Content-Type: application/json" --data "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getTransactionByHash\",\"params\":[\"$TXHASH\"],\"id\":1}" $RPC_URL)
+          BLOCK_HEX=$(echo $TX_RES | jq -r '.result.blockNumber // empty' | tr -d '\r\n ')
+
+          if [ -z "$BLOCK_HEX" ] || [ "$BLOCK_HEX" == "null" ]; then
+            echo "::error::Failed to fetch block number."
+            exit 1
+          fi
+
+          # 2. Get Timestamp
+          BLOCK_RES=$(curl -s -X POST -H "Content-Type: application/json" --data "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getBlockByNumber\",\"params\":[\"$BLOCK_HEX\", false],\"id\":1}" $RPC_URL)
+          TIMESTAMP_HEX=$(echo $BLOCK_RES | jq -r '.result.timestamp // empty' | tr -d '\r\n ')
+
+          if [ -z "$TIMESTAMP_HEX" ] || [ "$TIMESTAMP_HEX" == "null" ]; then
+             echo "::error::Failed to fetch timestamp."
+             exit 1
+          fi
+
+          # 3. Convert
+          BLOCK_NUM=$(printf "%d" $BLOCK_HEX)
+          TIMESTAMP=$(printf "%d" $TIMESTAMP_HEX)
+          DATE_STR=$(date -u -d @$TIMESTAMP +%Y-%m-%d)
+
+          echo "block_number=$BLOCK_NUM" >> $GITHUB_OUTPUT
+          echo "date=$DATE_STR" >> $GITHUB_OUTPUT
+          
+          BRANCH_NAME="incident/${DATE_STR}_${{ steps.parse.outputs.protocol }}"
+          BRANCH_NAME=${BRANCH_NAME// /-}
+          echo "TARGET_BRANCH=$BRANCH_NAME" >> $GITHUB_ENV
+
+      - name: Initialize
+        env:
           MAINNET_RPC_URL: ${{ secrets.MAINNET_RPC_URL || 'https://eth.llamarpc.com' }}
           BSC_RPC_URL: ${{ secrets.BSC_RPC_URL || 'https://bsc-dataseed.binance.org' }}
           ARBITRUM_RPC_URL: ${{ secrets.ARBITRUM_RPC_URL || 'https://arb1.arbitrum.io/rpc' }}
@@ -72,36 +136,49 @@ jobs:
           FANTOM_RPC_URL: ${{ secrets.FANTOM_RPC_URL || 'https://rpc.ftm.tools' }}
           BASE_RPC_URL: ${{ secrets.BASE_RPC_URL || 'https://mainnet.base.org' }}
         run: |
-          # Configure Git for Commit
           git config --global user.name "AuditBot"
           git config --global user.email "bot@audit.org"
-
-          # Run Script with parsed inputs
+          
+          git checkout -b ${{ env.TARGET_BRANCH }}
+          
+          chmod +x ./analyze.sh
           ./analyze.sh \
             -p "${{ steps.parse.outputs.protocol }}" \
-            -d "${{ steps.parse.outputs.date }}" \
+            -d "${{ steps.infura.outputs.date }}" \
+            -b "${{ steps.infura.outputs.block_number }}" \
             -c "${{ steps.parse.outputs.chain_id }}" \
             -t "${{ steps.parse.outputs.txhash }}" \
-            -m "${{ steps.parse.outputs.member }}" \
             --auto
+          
+          git add .
+          git commit -m "chore: init workspace for ${{ steps.parse.outputs.protocol }}"
+          git push origin ${{ env.TARGET_BRANCH }}
 
-      - name: Push Changes
-        uses: ad-m/github-push-action@master
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          branch: ${{ env.TARGET_BRANCH }} # analyze.sh should export this env var if possible, or we infer
-
-      - name: Comment on Issue
+      - name: Notify
         uses: actions/github-script@v6
         with:
           script: |
+            const branch = process.env.TARGET_BRANCH;
+            const block = "${{ steps.infura.outputs.block_number }}";
+            const date = "${{ steps.infura.outputs.date }}";
+            const chainId = "${{ steps.parse.outputs.chain_id }}";
             const protocol = "${{ steps.parse.outputs.protocol }}";
-            const date = "${{ steps.parse.outputs.date }}";
-            const branchName = `incident/${date}_${protocol}`;
             
-            github.rest.issues.createComment({
+            const comment = `**Workspace Ready**
+            
+            - **Branch:** \`${branch}\`
+            - **Date:** ${date}
+            - **Block:** ${block}
+            
+            Start analysis:
+            \`\`\`bash
+            git fetch origin && git checkout ${branch}
+            ./analyze.sh -p ${protocol} -d ${date} -c ${chainId} -t ${{ steps.parse.outputs.txhash }} -b ${block}
+            \`\`\``;
+
+            await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: `✅ **Workspace Initialized!**\n\n- **Branch:** \`${branchName}\`\n- **Base:** \`test/${date}_${protocol}/${protocol}Base.sol\`\n- **Replay:** \`test/${date}_${protocol}/Replay.t.sol\`\n\nRun the following to start:\n\`\`\`bash\ngit fetch origin\ngit checkout ${branchName}\n\`\`\``
+              body: comment
             });

@@ -1,14 +1,8 @@
 #!/bin/bash
 
 # analyze.sh
-# The One-Stop Solution for Incident Response & Collaboration
-# Usage: ./analyze.sh -p <Protocol> -d <Date> -c <ChainID> -t <TxHash> -m <Member> [--auto]
-
-# Colors
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
+# Core analysis script for incident response
+# Usage: ./analyze.sh -p <Protocol> -d <Date> -c <ChainID> -t <TxHash> -m <Member> [-b <Block>] [--auto]
 
 # Default values
 PROTOCOL=""
@@ -16,23 +10,25 @@ DATE=""
 CHAIN_ID="1"
 TX_HASH=""
 MEMBER_NAME=""
+BLOCK_NUMBER=""
 AUTO_MODE=0
 
-# Constants for cast
+# Constants
 RPC_ALIAS="mainnet"
 
-die() { echo -e "${RED}❌ $1${NC}"; exit 1; }
-info() { echo -e "${GREEN}✅ $1${NC}"; }
-warn() { echo -e "${YELLOW}⚠️  $1${NC}"; }
+die() { echo "Error: $1"; exit 1; }
+info() { echo "Info: $1"; }
+warn() { echo "Warning: $1"; }
 
 # Parse flags
-while getopts "p:d:c:t:m:a-:" opt; do
+while getopts "p:d:c:t:m:b:a-:" opt; do
   case $opt in
     p) PROTOCOL="$OPTARG" ;;
     d) DATE="$OPTARG" ;;
     c) CHAIN_ID="$OPTARG" ;;
     t) TX_HASH="$OPTARG" ;;
     m) MEMBER_NAME="$OPTARG" ;;
+    b) BLOCK_NUMBER="$OPTARG" ;;
     -) # Handle long options like --auto
         case "${OPTARG}" in
             auto) AUTO_MODE=1 ;;
@@ -43,7 +39,7 @@ while getopts "p:d:c:t:m:a-:" opt; do
 done
 
 # ==========================================
-# 1. Identity & Input (Local vs CI)
+# 1. Identity & Input
 # ==========================================
 
 # Resolve Member Name
@@ -52,22 +48,13 @@ if [ -z "$MEMBER_NAME" ]; then
         die "Member name required in Auto Mode (-m)"
     else
         GIT_USER=$(git config user.name)
-        read -p "👤 Enter your name [Default: $GIT_USER]: " INPUT_MEMBER
+        read -p "Enter your name [Default: $GIT_USER]: " INPUT_MEMBER
         MEMBER_NAME=${INPUT_MEMBER:-$GIT_USER}
     fi
 fi
 
-# Sanitize Member Name (Replace spaces with _)
+# Sanitize Member Name
 MEMBER_NAME=${MEMBER_NAME// /_}
-
-# Interactive Input (Only if not Auto Mode)
-if [ "$AUTO_MODE" -eq "0" ]; then
-    if [ -z "$PROTOCOL" ]; then
-        echo "--- Incident Setup Wizard ---"
-        read -p "1. Protocol Name (e.g., Seneca): " PROTOCOL
-    fi
-    # ... (Other interactive inputs would go here, simplified for brevity as CI uses flags) ...
-fi
 
 # Validation
 [ -z "$PROTOCOL" ] && die "Protocol name is required."
@@ -88,33 +75,33 @@ case $CHAIN_ID in
 esac
 
 # ==========================================
-# 2. Automated RPC Extraction (Smart Auto-Fill)
+# 2. Automated RPC Extraction
 # ==========================================
 
-info "🔍 Fetching Transaction Data from $RPC_ALIAS..."
+info "Fetching transaction data from $RPC_ALIAS..."
 
 # Use cast to fetch transaction details
-# Retries added for stability
 TX_JSON=$(cast tx "$TX_HASH" --rpc-url "$RPC_URL" --json 2>/dev/null)
 
 if [ -z "$TX_JSON" ] || [ "$TX_JSON" == "null" ]; then
     if [ "$AUTO_MODE" -eq "1" ]; then
-        die "Transaction $TX_HASH not found on chain $CHAIN_ID ($RPC_URL)"
+        if [ -n "$BLOCK_NUMBER" ]; then
+             warn "Transaction not found via Cast, but Block Number provided. Proceeding with limited data."
+             ATTACKER="0x0000000000000000000000000000000000000000"
+             TARGET="0x0000000000000000000000000000000000000000"
+             INPUT_DATA=""
+             BLOCK_NUMBER_DEC="$BLOCK_NUMBER"
+        else
+             die "Transaction $TX_HASH not found on chain $CHAIN_ID and no Block Number provided."
+        fi
     else
         warn "Could not fetch Tx. Using manual/default values."
+        BLOCK_NUMBER_DEC="0"
+        ATTACKER="0x0000000000000000000000000000000000000000"
+        TARGET="0x0000000000000000000000000000000000000000"
+        INPUT_DATA=""
     fi
-    # Fallbacks
-    BLOCK_NUMBER_DEC="0"
-    ATTACKER="0x0000000000000000000000000000000000000000"
-    TARGET="0x0000000000000000000000000000000000000000"
-    INPUT_DATA=""
 else
-    # Extract fields using grep/sed to avoid jq dependency if possible, but cast outputs json.
-    # We'll use a simple python oneliner or string manipulation if jq is missing, 
-    # but in CI/Dev environment jq/node is usually available. 
-    # Here we assume a robust environment or basic string parsing.
-    
-    # Simple parser for the specific cast output format
     get_json_val() {
         echo "$TX_JSON" | grep -o "\"$1\": *\"[^\"]*\"" | cut -d'"' -f4
     }
@@ -124,19 +111,25 @@ else
     TO_ADDR=$(get_json_val "to")
     INPUT_DATA=$(get_json_val "input")
 
-    # Convert Block Hex to Dec
-    BLOCK_NUMBER_DEC=$(cast --to-dec "$BLOCK_NUMBER_HEX")
+    if [ -n "$BLOCK_NUMBER" ]; then
+        BLOCK_NUMBER_DEC="$BLOCK_NUMBER"
+        info "Block: $BLOCK_NUMBER_DEC (Using provided value)"
+    else
+        BLOCK_NUMBER_DEC=$(cast --to-dec "$BLOCK_NUMBER_HEX")
+        info "Block: $BLOCK_NUMBER_DEC (Fetched from Tx)"
+    fi
     
-    # Calculate Fork Block (-1)
     FORK_BLOCK=$((BLOCK_NUMBER_DEC - 1))
     
     ATTACKER=$FROM_ADDR
     TARGET=$TO_ADDR
     
-    info "  Block: $BLOCK_NUMBER_DEC (Forking at $FORK_BLOCK)"
-    info "  Attacker: $ATTACKER"
-    info "  Target: $TARGET"
-    info "  Input Data: Captured"
+    info "Attacker: $ATTACKER"
+    info "Target: $TARGET"
+fi
+
+if [ -z "$FORK_BLOCK" ]; then
+    FORK_BLOCK=$((BLOCK_NUMBER_DEC - 1))
 fi
 
 # ==========================================
@@ -147,15 +140,13 @@ DIR_NAME="${DATE}_${PROTOCOL}"
 TARGET_DIR="test/$DIR_NAME"
 BRANCH_NAME="incident/$DIR_NAME"
 
-# Export for GitHub Actions
 if [ "$AUTO_MODE" -eq "1" ]; then
     echo "TARGET_BRANCH=$BRANCH_NAME" >> $GITHUB_ENV
 fi
 
-info "[*] Workspace: $TARGET_DIR"
-info "[*] Branch:    $BRANCH_NAME"
+info "Workspace: $TARGET_DIR"
+info "Branch:    $BRANCH_NAME"
 
-# Local Git Operations (Context Switching)
 if [ "$AUTO_MODE" -eq "0" ]; then
     git fetch origin > /dev/null 2>&1
     if git ls-remote --heads origin "$BRANCH_NAME" | grep -q "$BRANCH_NAME"; then
@@ -169,7 +160,6 @@ if [ "$AUTO_MODE" -eq "0" ]; then
         fi
     fi
 else
-    # CI Mode: Just checkout/create branch
     git fetch origin
     if git ls-remote --heads origin "$BRANCH_NAME" | grep -q "$BRANCH_NAME"; then
         git checkout "$BRANCH_NAME"
@@ -223,10 +213,10 @@ abstract contract ${PROTOCOL}Base is BaseTest {
     }
 }
 EOF
-    info "  + Generated Base"
+    info "Created Base"
 fi
 
-# B. Replay Test (Ground Truth)
+# B. Replay Test
 if [ ! -f "$REPLAY_PATH" ]; then
     cat <<EOF > "$REPLAY_PATH"
 // SPDX-License-Identifier: UNLICENSED
@@ -255,7 +245,7 @@ contract ReplayTest is ${PROTOCOL}Base {
     }
 }
 EOF
-    info "  + Generated Replay (Auto-Filled Input Data)"
+    info "Created Replay"
 fi
 
 # C. README
@@ -273,7 +263,7 @@ if [ ! -f "$README_PATH" ]; then
 ## 2. Status
 - [x] Initialized by $MEMBER_NAME
 EOF
-    info "  + Generated README"
+    info "Created README"
 fi
 
 # D. Personal PoC
@@ -297,15 +287,13 @@ contract PoC_${MEMBER_NAME} is ${PROTOCOL}Base {
     }
 }
 EOF
-    info "  + Generated PoC for $MEMBER_NAME"
+    info "Created PoC"
 fi
 
 # ==========================================
 # 5. Finalize
 # ==========================================
 
-# If in CI, commit happens in the workflow file.
-# If local, we can instruct user.
 if [ "$AUTO_MODE" -eq "0" ]; then
     info "Done! Run 'git push' to share your workspace."
 fi
