@@ -205,7 +205,9 @@ jobs:
           git config --global user.email "bot@audit.org"
           git checkout -b ${{ env.TARGET_BRANCH }}
 
-          PROTOCOL="${{ steps.parse.outputs.protocol }}"
+          PROTOCOL_RAW="${{ steps.parse.outputs.protocol }}"
+          # Sanitize: replace spaces/special chars with underscore, valid Solidity identifier
+          PROTOCOL=$(echo "$PROTOCOL_RAW" | sed 's/[^a-zA-Z0-9]/_/g' | sed 's/__*/_/g' | sed 's/^_//;s/_$//')
           DATE="${{ steps.metadata.outputs.date }}"
           BLOCK="${{ steps.metadata.outputs.block_number }}"
           FORK_BLOCK="${{ steps.metadata.outputs.fork_block }}"
@@ -229,7 +231,7 @@ jobs:
           import "src/shared/interfaces.sol";
 
           /*
-          @Protocol: ${PROTOCOL}
+gㅎ          @Protocol: ${PROTOCOL_RAW}
           @Date: ${DATE}
           @Attacker: ${ATTACKER}
           @Target: ${TARGET}
@@ -264,7 +266,7 @@ jobs:
           SOLEOF
 
           cat > "$DIR/README.md" << MDEOF
-          # ${PROTOCOL} Incident
+          # ${PROTOCOL_RAW} Incident
 
           | Field | Value |
           |-------|-------|
