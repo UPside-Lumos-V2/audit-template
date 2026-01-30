@@ -25,3 +25,7 @@ int_types = "long"
 multiline_func_header = "params_first"
 quote_style = "double"
 number_underscore = "thousands"
+
+[profile.ci]
+fuzz = { runs = 256 }
+verbosity = 4
