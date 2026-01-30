@@ -57,19 +57,19 @@ cat <<EOF > "$README_PATH"
 EOF
 echo "[+] Created README.md at $README_PATH"
 
-# 2. Create Exploit.t.sol Template
+# 2. Create Exploit.t.sol Template (Enhanced)
 SOL_PATH="$TARGET_DIR/Exploit.t.sol"
 cat <<EOF > "$SOL_PATH"
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.10;
 
-import "forge-std/Test.sol";
+import "src/shared/BaseTest.sol";
 import "src/shared/interfaces.sol";
 
 // @KeyInfo - Total Lost : N/A
 // @Analysis : https://...
 
-contract ${PROTOCOL}Exploit is Test {
+contract ${PROTOCOL}Exploit is BaseTest {
     // 1. Constants & Variables
     // IERC20 constant USDC = IERC20(0xA0b8699...);
 
@@ -79,17 +79,14 @@ contract ${PROTOCOL}Exploit is Test {
         
         // 3. Labels
         // vm.label(address(USDC), "USDC");
+        
+        // 4. Config Funding Token (for balanceLog)
+        // fundingToken = address(USDC);
     }
 
-    function testExploit() public {
-        // 4. Log Balance Before
-        // emit log_named_decimal_uint("Balance Before", USDC.balanceOf(address(this)), 6);
-
+    function testExploit() public balanceLog {
         // 5. Execute Attack
         // ...
-
-        // 6. Log Balance After
-        // emit log_named_decimal_uint("Balance After", USDC.balanceOf(address(this)), 6);
     }
 }
 EOF
