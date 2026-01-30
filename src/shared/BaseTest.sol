@@ -98,13 +98,7 @@ contract BaseTest is Test {
         // Format: result_<tag>_<block_timestamp>_<block_number>.json
         string memory fileName = string(
             abi.encodePacked(
-                "data/results/result_", 
-                tag, 
-                "_", 
-                vm.toString(block.timestamp), 
-                "_", 
-                vm.toString(block.number), 
-                ".json"
+                "data/results/result_", tag, "_", vm.toString(block.timestamp), "_", vm.toString(block.number), ".json"
             )
         );
 
@@ -117,7 +111,7 @@ contract BaseTest is Test {
         uint256 startGas = gasleft();
         address user = beneficiary == address(0) ? address(this) : beneficiary;
         (string memory symbol, uint256 startBalance, uint8 decimals) = _getTokenData(fundingToken, user);
-        
+
         if (fundingToken == address(0)) vm.deal(user, 0);
         _logTokenBalance(fundingToken, user, "Attacker Before");
 
@@ -133,11 +127,13 @@ contract BaseTest is Test {
     }
 
     // New modifier for tagged execution (Replay vs Logic)
-    modifier recordMetrics(string memory tag) {
+    modifier recordMetrics(
+        string memory tag
+    ) {
         uint256 startGas = gasleft();
         address user = beneficiary == address(0) ? address(this) : beneficiary;
         (string memory symbol, uint256 startBalance, uint8 decimals) = _getTokenData(fundingToken, user);
-        
+
         if (fundingToken == address(0)) vm.deal(user, 0);
         _logTokenBalance(fundingToken, user, string(abi.encodePacked("[", tag, "] Attacker Before")));
 

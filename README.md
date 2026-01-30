@@ -1,48 +1,45 @@
 # Audit Collaboration Template
 
-**Collaborative Incident Response Environment**
-Designed for "1 Incident = 1 Directory" structure to minimize conflicts and enable automated data mining.
+**Collaborative Incident Response & Data Mining Environment**
+Designed for high-performance teams analyzing DeFi hacks. Features a **"3-Layer Architecture"** to separate configuration, ground truth, and individual analysis.
 
-## 🚀 Quick Start
+## 🚀 Workflow Guide
 
-### 1. Initialize Incident
+### 1. 👑 Lead: Initialize Workspace
+Create a new shared workspace for the incident.
 ```bash
-# Creates test/YYYY/MM/ProtocolName with templates
-./setup_incident.sh <ProtocolName> [Date]
-
-# Example
-./setup_incident.sh Seneca 2024-02-28
+# Usage: ./init_incident.sh <Protocol>
+./init_incident.sh Seneca
 ```
+*   Creates `test/Seneca/`
+*   Generates `SenecaBase.sol` (Shared Config) & `Replay.t.sol` (Ground Truth)
 
-### 2. Fill Metadata (Important)
-Edit `test/.../Exploit.t.sol` header for automated labeling.
-```solidity
-/*
-@Analysis-Start
-@Protocol: Seneca
-@Date: 2024-02-28
-@Lost: 10M USD
-@Attacker: 0x...
-@Target: 0x...
-@TxHash: 0x...
-@Analysis-End
-*/
-```
+### 2. 👑 Lead: Setup & Verify
+1.  **Edit `SenecaBase.sol`**: Set `BLOCK_NUMBER`, `target`, `fundingToken`.
+2.  **Edit `Replay.t.sol`**: Paste the hacker's input data to verify the environment.
+3.  **Push Branch**: `git checkout -b incident/Seneca` -> `git push`
 
-### 3. Write & Run PoC
+### 3. 👷 Member: Add PoC
+Members checkout the incident branch and create their own PoC file.
 ```bash
-# Run tests
-forge test
+git checkout incident/Seneca
+git checkout -b feat/Seneca/Alice
 
-# Run specific incident
-forge test --match-path test/2024/02/Seneca/Exploit.t.sol -vvv
+# Usage: ./add_poc.sh <Protocol> <MemberName>
+./add_poc.sh Seneca Alice
 ```
+*   Creates `test/Seneca/PoC_Alice.t.sol`
+*   Inherits `SenecaBase`, so you can focus solely on `testExploit()`.
+
+### 4. 📊 Auto-Mining & Verification
+All tests automatically generate execution metrics (Gas, Profit, Code Size) in `data/results/`.
+- **Replay**: Used as the benchmark (Ground Truth).
+- **PoC**: Verified against the benchmark.
 
 ## 🛠 Features
-
-- **Conflict-Free:** Isolated directory per incident.
-- **Auto-Mining:** `BaseTest` automatically records execution metrics (Gas, Profit, Code Size) to `data/results/`.
-- **Pre-loaded Libs:** `IERC20`, `IUniswapV2`, etc. ready to use in `src/shared/interfaces.sol`.
+- **3-Layer Architecture**: `BaseTest` (Global) -> `IncidentBase` (Shared) -> `PoC` (Personal).
+- **Hybrid Verification**: Support for both **Transaction Replay** (Fast Data) and **Logic Reproduction** (Deep Analysis).
+- **Conflict-Free**: Individual files for each member (`PoC_Alice.sol`, `PoC_Bob.sol`).
 
 ## 📦 Requirements
 - [Foundry](https://github.com/foundry-rs/foundry)
