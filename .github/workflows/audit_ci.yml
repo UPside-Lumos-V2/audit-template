@@ -1,0 +1,38 @@
+name: Audit Analysis CI
+
+on:
+  pull_request:
+    paths:
+      - 'test/**'
+      - 'src/**'
+      - 'foundry.toml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'test/**'
+      - 'src/**'
+
+env:
+  FOUNDRY_PROFILE: ci
+
+jobs:
+  test:
+    name: Run Exploit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+
+      - name: Check Formatting
+        run: forge fmt --check
+
+      - name: Run Tests
+        # Run tests with 3 verbosity levels to see traces on failure
+        run: forge test -vvv
