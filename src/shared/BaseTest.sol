@@ -2,6 +2,7 @@
 pragma solidity ^0.8.0;
 
 import "./TokenHelper.sol";
+import "./FeatureTypes.sol";
 import "forge-std/Test.sol";
 
 contract BaseTest is Test {
@@ -106,6 +107,53 @@ contract BaseTest is Test {
         vm.writeJson(finalJson, fileName);
     }
 
+    function _writeAnalysisResult(
+        string memory tag,
+        uint256 gasUsed,
+        uint256 profit,
+        string memory symbol,
+        uint8 decimals,
+        Analysis memory analysis
+    ) internal {
+        string memory jsonObj = "result";
+
+        // 1. Context Features
+        vm.serializeString(jsonObj, "mode", tag);
+        vm.serializeUint(jsonObj, "chain_id", block.chainid);
+        vm.serializeUint(jsonObj, "block_number", block.number);
+        vm.serializeUint(jsonObj, "block_timestamp", block.timestamp);
+
+        // 2. Cost & Complexity Features
+        vm.serializeUint(jsonObj, "gas_used", gasUsed);
+
+        // 3. Financial Impact Features
+        vm.serializeUint(jsonObj, "realized_profit", profit);
+        vm.serializeString(jsonObj, "token_symbol", symbol);
+        vm.serializeUint(jsonObj, "token_decimals", decimals);
+        vm.serializeAddress(jsonObj, "token_address", fundingToken);
+
+        // 4. Static Analysis Features
+        uint256 victimCodeSize = target == address(0) ? 0 : target.code.length;
+        vm.serializeUint(jsonObj, "victim_code_size", victimCodeSize);
+
+        // 5. Labeled Features (from auditor)
+        vm.serializeUint(jsonObj, "vulnerability_type", uint256(analysis.vulnType));
+        vm.serializeUint(jsonObj, "attack_vector", uint256(analysis.attackVector));
+        vm.serializeUint(jsonObj, "severity_score", analysis.severityScore);
+        vm.serializeString(jsonObj, "root_cause", analysis.rootCause);
+
+        // Success Flag
+        string memory finalJson = vm.serializeBool(jsonObj, "success", true);
+
+        string memory fileName = string(
+            abi.encodePacked(
+                "data/results/result_", tag, "_", vm.toString(block.timestamp), "_", vm.toString(block.number), ".json"
+            )
+        );
+
+        vm.writeJson(finalJson, fileName);
+    }
+
     // Default modifier for backward compatibility
     modifier balanceLog() {
         uint256 startGas = gasleft();
@@ -165,5 +213,25 @@ contract BaseTest is Test {
         for (uint256 i = 0; i < tokens.length; i++) {
             _logTokenBalance(tokens[i], account, "");
         }
+    }
+
+    // Modifier for PoC with labeled analysis
+    modifier recordAnalysis(string memory tag, Analysis memory analysis) {
+        uint256 startGas = gasleft();
+        address user = beneficiary == address(0) ? address(this) : beneficiary;
+        (string memory symbol, uint256 startBalance, uint8 decimals) = _getTokenData(fundingToken, user);
+
+        if (fundingToken == address(0)) vm.deal(user, 0);
+        _logTokenBalance(fundingToken, user, string(abi.encodePacked("[", tag, "] Before")));
+
+        _;
+
+        uint256 endGas = gasleft();
+        uint256 gasUsed = startGas - endGas;
+        (, , uint256 endBalance) = _getTokenData(fundingToken, user);
+        uint256 profit = endBalance > startBalance ? endBalance - startBalance : 0;
+
+        _logTokenBalance(fundingToken, user, string(abi.encodePacked("[", tag, "] After")));
+        _writeAnalysisResult(tag, gasUsed, profit, symbol, decimals, analysis);
     }
 }

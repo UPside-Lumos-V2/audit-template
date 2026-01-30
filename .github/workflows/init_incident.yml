@@ -133,39 +133,147 @@ jobs:
           BLOCK_NUM=$(printf "%d" $BLOCK_HEX)
           TIMESTAMP=$(printf "%d" $TIMESTAMP_HEX)
           DATE_STR=$(date -u -d @$TIMESTAMP +%Y-%m-%d)
+          FORK_BLOCK=$((BLOCK_NUM - 1))
+
+          # 4. Extract tx data
+          ATTACKER=$(echo $TX_RES | jq -r '.result.from // "0x0000000000000000000000000000000000000000"')
+          TARGET=$(echo $TX_RES | jq -r '.result.to // "0x0000000000000000000000000000000000000000"')
+          INPUT_DATA=$(echo $TX_RES | jq -r '.result.input // "0x"')
 
           echo "block_number=$BLOCK_NUM" >> $GITHUB_OUTPUT
+          echo "fork_block=$FORK_BLOCK" >> $GITHUB_OUTPUT
           echo "date=$DATE_STR" >> $GITHUB_OUTPUT
+          echo "attacker=$ATTACKER" >> $GITHUB_OUTPUT
+          echo "target=$TARGET" >> $GITHUB_OUTPUT
+          echo "input_data=$INPUT_DATA" >> $GITHUB_OUTPUT
+          
+          # RPC alias for foundry.toml
+          case $CHAIN_ID in
+            1) echo "rpc_alias=mainnet" >> $GITHUB_OUTPUT ;;
+            56) echo "rpc_alias=bsc" >> $GITHUB_OUTPUT ;;
+            137) echo "rpc_alias=polygon" >> $GITHUB_OUTPUT ;;
+            42161) echo "rpc_alias=arbitrum" >> $GITHUB_OUTPUT ;;
+            10) echo "rpc_alias=optimism" >> $GITHUB_OUTPUT ;;
+            43114) echo "rpc_alias=avalanche" >> $GITHUB_OUTPUT ;;
+            8453) echo "rpc_alias=base" >> $GITHUB_OUTPUT ;;
+            *) echo "rpc_alias=mainnet" >> $GITHUB_OUTPUT ;;
+          esac
           
           BRANCH_NAME="incident/${DATE_STR}_${{ steps.parse.outputs.protocol }}"
           BRANCH_NAME=${BRANCH_NAME// /-}
           echo "TARGET_BRANCH=$BRANCH_NAME" >> $GITHUB_ENV
 
-      - name: Initialize
-        env:
-          MAINNET_RPC_URL: ${{ secrets.MAINNET_RPC_URL || 'https://eth.llamarpc.com' }}
-          BSC_RPC_URL: ${{ secrets.BSC_RPC_URL || 'https://bsc-dataseed.binance.org' }}
-          ARBITRUM_RPC_URL: ${{ secrets.ARBITRUM_RPC_URL || 'https://arb1.arbitrum.io/rpc' }}
-          OPTIMISM_RPC_URL: ${{ secrets.OPTIMISM_RPC_URL || 'https://mainnet.optimism.io' }}
-          POLYGON_RPC_URL: ${{ secrets.POLYGON_RPC_URL || 'https://polygon-rpc.com' }}
-          AVALANCHE_RPC_URL: ${{ secrets.AVALANCHE_RPC_URL || 'https://api.avax.network/ext/bc/C/rpc' }}
-          FANTOM_RPC_URL: ${{ secrets.FANTOM_RPC_URL || 'https://rpc.ftm.tools' }}
-          BASE_RPC_URL: ${{ secrets.BASE_RPC_URL || 'https://mainnet.base.org' }}
+      - name: Generate Templates
         run: |
           git config --global user.name "AuditBot"
           git config --global user.email "bot@audit.org"
-          
           git checkout -b ${{ env.TARGET_BRANCH }}
           
-          chmod +x ./analyze.sh
-          ./analyze.sh \
-            -p "${{ steps.parse.outputs.protocol }}" \
-            -d "${{ steps.infura.outputs.date }}" \
-            -b "${{ steps.infura.outputs.block_number }}" \
-            -c "${{ steps.parse.outputs.chain_id }}" \
-            -t "${{ steps.parse.outputs.txhash }}" \
-            --auditors '${{ steps.parse.outputs.auditors }}' \
-            --auto
+          PROTOCOL="${{ steps.parse.outputs.protocol }}"
+          DATE="${{ steps.infura.outputs.date }}"
+          BLOCK="${{ steps.infura.outputs.block_number }}"
+          FORK_BLOCK="${{ steps.infura.outputs.fork_block }}"
+          CHAIN_ID="${{ steps.parse.outputs.chain_id }}"
+          TXHASH="${{ steps.parse.outputs.txhash }}"
+          ATTACKER="${{ steps.infura.outputs.attacker }}"
+          TARGET="${{ steps.infura.outputs.target }}"
+          INPUT_DATA="${{ steps.infura.outputs.input_data }}"
+          RPC_ALIAS="${{ steps.infura.outputs.rpc_alias }}"
+          
+          DIR="test/${DATE}_${PROTOCOL}"
+          mkdir -p "$DIR"
+          mkdir -p "data/results"
+          
+          # 1. Base Contract
+          cat > "$DIR/${PROTOCOL}Base.sol" << SOLEOF
+          // SPDX-License-Identifier: UNLICENSED
+          pragma solidity ^0.8.10;
+          
+          import "src/shared/BaseTest.sol";
+          import "src/shared/FeatureTypes.sol";
+          import "src/shared/interfaces.sol";
+          
+          /*
+          @Protocol: ${PROTOCOL}
+          @Date: ${DATE}
+          @Attacker: ${ATTACKER}
+          @Target: ${TARGET}
+          @TxHash: ${TXHASH}
+          @ChainId: ${CHAIN_ID}
+          */
+          
+          abstract contract ${PROTOCOL}Base is BaseTest {
+              function setUp() public virtual {
+                  vm.createSelectFork("${RPC_ALIAS}", ${FORK_BLOCK});
+                  target = ${TARGET};
+              }
+          }
+          SOLEOF
+          
+          # 2. Replay Test
+          INPUT_HEX="${INPUT_DATA#0x}"
+          cat > "$DIR/Replay.t.sol" << SOLEOF
+          // SPDX-License-Identifier: UNLICENSED
+          pragma solidity ^0.8.10;
+          
+          import "./${PROTOCOL}Base.sol";
+          
+          contract ReplayTest is ${PROTOCOL}Base {
+              function testReplay() public recordMetrics("REPLAY") {
+                  beneficiary = ${ATTACKER};
+                  vm.startPrank(${ATTACKER});
+                  (bool success, ) = ${TARGET}.call(hex"${INPUT_HEX}");
+                  require(success, "Replay failed");
+                  vm.stopPrank();
+              }
+          }
+          SOLEOF
+          
+          # 3. README
+          cat > "$DIR/README.md" << MDEOF
+          # ${PROTOCOL} Incident
+          
+          | Field | Value |
+          |-------|-------|
+          | Date | ${DATE} |
+          | Chain | ${CHAIN_ID} |
+          | Block | ${BLOCK} |
+          | Tx | \`${TXHASH}\` |
+          | Attacker | \`${ATTACKER}\` |
+          | Target | \`${TARGET}\` |
+          
+          ## Auditors
+          $(echo '${{ steps.parse.outputs.auditors }}' | jq -r '.[] | "- [ ] @\(.)"')
+          
+          ## Status
+          - [x] Workspace initialized
+          - [ ] Replay verified
+          - [ ] Analysis complete
+          MDEOF
+          
+          # 4. PoC for each auditor
+          for auditor in $(echo '${{ steps.parse.outputs.auditors }}' | jq -r '.[]'); do
+            cat > "$DIR/PoC_${auditor}.t.sol" << SOLEOF
+          // SPDX-License-Identifier: UNLICENSED
+          pragma solidity ^0.8.10;
+          
+          import "./${PROTOCOL}Base.sol";
+          
+          contract PoC_${auditor} is ${PROTOCOL}Base {
+              // Fill in your analysis
+              Analysis analysis = Analysis({
+                  vulnType: VulnerabilityType.UNKNOWN,
+                  attackVector: AttackVector.UNKNOWN,
+                  severityScore: 0,
+                  rootCause: ""
+              });
+          
+              function testExploit() public recordAnalysis("PoC_${auditor}", analysis) {
+                  // Implement your exploit logic
+              }
+          }
+          SOLEOF
+          done
           
       - name: Verify Replay
         id: verify
