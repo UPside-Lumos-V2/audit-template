@@ -1,24 +1,57 @@
 #!/bin/bash
 
 # init_incident.sh
-# Purpose: Initialize a new Incident Workspace for team collaboration
-# Usage: ./init_incident.sh <ProtocolName>
+# Purpose: Initialize a new Incident Workspace with detailed metadata
+# Usage: ./init_incident.sh -p <Protocol> -d <Date> -c <ChainID> -t <TxHash>
 
-PROTOCOL=$1
+# Default values
+PROTOCOL=""
+DATE=""
+CHAIN_ID="1"
+TX_HASH=""
 
+# Parse flags
+while getopts "p:d:c:t:" opt; do
+  case $opt in
+    p) PROTOCOL="$OPTARG" ;;
+    d) DATE="$OPTARG" ;;
+    c) CHAIN_ID="$OPTARG" ;;
+    t) TX_HASH="$OPTARG" ;;
+    \?) echo "Invalid option -$OPTARG" >&2; exit 1 ;;
+  esac
+done
+
+# Interactive mode if arguments are missing
 if [ -z "$PROTOCOL" ]; then
-    echo "Usage: $0 <ProtocolName>"
-    echo "Example: $0 Seneca"
-    exit 1
+    echo "--- Incident Setup Wizard ---"
+    read -p "1. Protocol Name (e.g., Seneca): " PROTOCOL
 fi
 
-TARGET_DIR="test/$PROTOCOL"
+if [ -z "$DATE" ]; then
+    DEFAULT_DATE=$(date +%Y-%m-%d)
+    read -p "2. Incident Date (YYYY-MM-DD) [Default: $DEFAULT_DATE]: " INPUT_DATE
+    DATE=${INPUT_DATE:-$DEFAULT_DATE}
+fi
+
+if [ -z "$TX_HASH" ]; then
+    read -p "3. Transaction Hash (e.g., 0x123...): " TX_HASH
+fi
+
+if [ -z "$CHAIN_ID" ] || [ "$CHAIN_ID" == "1" ]; then
+    read -p "4. Chain ID (e.g., 1 for Eth, 56 for BSC) [Default: 1]: " INPUT_CHAIN
+    CHAIN_ID=${INPUT_CHAIN:-1}
+fi
+
+# Define Directory Name: YYYY-MM-DD_Protocol (Collision resistant)
+DIR_NAME="${DATE}_${PROTOCOL}"
+TARGET_DIR="test/$DIR_NAME"
 
 if [ -d "$TARGET_DIR" ]; then
-    echo "Error: Directory $TARGET_DIR already exists."
+    echo "❌ Error: Directory $TARGET_DIR already exists."
     exit 1
 fi
 
+echo ""
 echo "[*] Creating Workspace: $TARGET_DIR"
 mkdir -p "$TARGET_DIR"
 
@@ -34,11 +67,12 @@ import "src/shared/interfaces.sol";
 /*
 @Analysis-Start
 @Protocol: $PROTOCOL
-@Date: YYYY-MM-DD
+@Date: $DATE
 @Lost: 
 @Attacker: 
 @Target: 
-@TxHash: 
+@TxHash: $TX_HASH
+@ChainId: $CHAIN_ID
 @Analysis-End
 */
 
@@ -46,6 +80,7 @@ abstract contract ${PROTOCOL}Base is BaseTest {
     // Shared Setup for all team members
     function setUp() public virtual {
         // 1. Fork Environment (Leader sets this)
+        // ChainId: $CHAIN_ID
         // vm.createSelectFork("mainnet", BLOCK_NUMBER); 
         
         // 2. Mining Config
@@ -77,7 +112,8 @@ contract ReplayTest is ${PROTOCOL}Base {
         // beneficiary = attacker; // Update profit beneficiary
         // vm.startPrank(attacker);
         
-        // 1. Copy Input Data from Etherscan
+        // 1. Replay Transaction
+        // TxHash: $TX_HASH
         // (bool success, ) = attackContract.call(hex"...");
         // require(success, "Replay failed");
         
@@ -93,9 +129,11 @@ cat <<EOF > "$README_PATH"
 # $PROTOCOL Incident Analysis
 
 ## 1. Incident Summary
+- **Date:** $DATE
+- **Chain ID:** $CHAIN_ID
+- **Tx Hash:** \`$TX_HASH\`
 - **Attacker:** \`0x...\`
 - **Victim:** \`0x...\`
-- **Tx Hash:** \`0x...\`
 - **Lost:** $...
 
 ## 2. Work Log
@@ -106,8 +144,4 @@ EOF
 echo "[+] Created README: $README_PATH"
 
 echo ""
-echo "✅ Workspace Initialized!"
-echo "Next Steps:"
-echo "1. Edit $BASE_PATH (Setup)"
-echo "2. Edit $REPLAY_PATH (Verify)"
-echo "3. Team members run: ./add_poc.sh $PROTOCOL <Name>"
+echo "✅ Workspace Initialized: test/$DIR_NAME"
