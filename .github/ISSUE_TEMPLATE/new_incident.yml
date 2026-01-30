@@ -1,6 +1,5 @@
-name: Incident Report
-description: Create a new workspace for incident analysis
-title: "Incident Report"
+name: New Incident
+description: Initialize incident workspace
 labels: ["incident"]
 body:
   - type: input

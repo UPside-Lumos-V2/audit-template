@@ -148,6 +148,7 @@ jobs:
             -b "${{ steps.infura.outputs.block_number }}" \
             -c "${{ steps.parse.outputs.chain_id }}" \
             -t "${{ steps.parse.outputs.txhash }}" \
+            -m "AuditBot" \
             --auto
           
           git add .
