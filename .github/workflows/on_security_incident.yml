@@ -163,9 +163,13 @@ jobs:
           DATE_STR=$(date -u -d @$TIMESTAMP +%Y-%m-%d)
           FORK_BLOCK=$((BLOCK_NUM - 1))
 
-          ATTACKER=$(echo $TX_RES | jq -r '.result.from // "0x0000000000000000000000000000000000000000"')
-          TARGET=$(echo $TX_RES | jq -r '.result.to // "0x0000000000000000000000000000000000000000"')
+          ATTACKER_RAW=$(echo $TX_RES | jq -r '.result.from // "0x0000000000000000000000000000000000000000"')
+          TARGET_RAW=$(echo $TX_RES | jq -r '.result.to // "0x0000000000000000000000000000000000000000"')
           INPUT_DATA=$(echo $TX_RES | jq -r '.result.input // "0x"')
+
+          # Convert to checksum addresses for Solidity
+          ATTACKER=$(cast to-checksum "$ATTACKER_RAW")
+          TARGET=$(cast to-checksum "$TARGET_RAW")
 
           echo "block_number=$BLOCK_NUM" >> $GITHUB_OUTPUT
           echo "fork_block=$FORK_BLOCK" >> $GITHUB_OUTPUT
@@ -231,7 +235,7 @@ jobs:
           import "src/shared/interfaces.sol";
 
           /*
-gㅎ          @Protocol: ${PROTOCOL_RAW}
+          @Protocol: ${PROTOCOL_RAW}
           @Date: ${DATE}
           @Attacker: ${ATTACKER}
           @Target: ${TARGET}
