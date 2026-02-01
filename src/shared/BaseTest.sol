@@ -144,6 +144,19 @@ contract BaseTest is Test {
 
     // ==================== Result Writers ====================
 
+    function _getOutputDir() internal view returns (string memory) {
+        // Default to local directory
+        string memory outputDir = "data/local/";
+        // Check for CI environment variable
+        try vm.envString("CI") returns (string memory val) {
+            // Check if CI is set to "true"
+            if (keccak256(abi.encodePacked(val)) == keccak256(abi.encodePacked("true"))) {
+                outputDir = "data/verified/";
+            }
+        } catch {}
+        return outputDir;
+    }
+
     function _writeExecutionResult(
         string memory tag,
         uint256 gasUsed,
@@ -168,18 +181,9 @@ contract BaseTest is Test {
 
         string memory finalJson = vm.serializeBool(jsonObj, "success", true);
 
-        // Determine output directory based on environment
-        // CI=true -> verified/, Local -> local/
-        string memory outputDir = "data/local/";
-        try vm.envString("CI") returns (string memory val) {
-            if (keccak256(abi.encodePacked(val)) == keccak256(abi.encodePacked("true"))) {
-                outputDir = "data/verified/";
-            }
-        } catch {}
-
         string memory fileName = string(
             abi.encodePacked(
-                outputDir, "result_", tag, "_", vm.toString(block.timestamp), "_", vm.toString(block.number), ".json"
+                _getOutputDir(), "result_", tag, "_", vm.toString(block.timestamp), "_", vm.toString(block.number), ".json"
             )
         );
 
@@ -220,7 +224,7 @@ contract BaseTest is Test {
 
         string memory fileName = string(
             abi.encodePacked(
-                "data/results/result_", tag, "_", vm.toString(block.timestamp), "_", vm.toString(block.number), ".json"
+                _getOutputDir(), "result_", tag, "_", vm.toString(block.timestamp), "_", vm.toString(block.number), ".json"
             )
         );
 
@@ -288,7 +292,7 @@ contract BaseTest is Test {
         mitsJson = string(abi.encodePacked(mitsJson, "]"));
 
         string memory classFile =
-            string(abi.encodePacked("data/results/classification_", tag, "_", vm.toString(block.timestamp), ".json"));
+            string(abi.encodePacked(_getOutputDir(), "classification_", tag, "_", vm.toString(block.timestamp), ".json"));
         string memory finalJson = string(
             abi.encodePacked(
                 '{"vulnerabilities":', vulnsJson, ',"attack_vectors":', vectorsJson, ',"mitigations":', mitsJson, "}"
@@ -323,7 +327,7 @@ contract BaseTest is Test {
         profitsJson = string(abi.encodePacked(profitsJson, "]"));
 
         string memory profitFile =
-            string(abi.encodePacked("data/results/profits_", tag, "_", vm.toString(block.timestamp), ".json"));
+            string(abi.encodePacked(_getOutputDir(), "profits_", tag, "_", vm.toString(block.timestamp), ".json"));
         string memory finalJson = string(abi.encodePacked('{"profits":', profitsJson, "}"));
         vm.writeFile(profitFile, finalJson);
     }
@@ -351,7 +355,7 @@ contract BaseTest is Test {
         deltasJson = string(abi.encodePacked(deltasJson, "]"));
 
         string memory storageFile =
-            string(abi.encodePacked("data/results/storage_", tag, "_", vm.toString(block.timestamp), ".json"));
+            string(abi.encodePacked(_getOutputDir(), "storage_", tag, "_", vm.toString(block.timestamp), ".json"));
         string memory storageJson = string(abi.encodePacked('{"deltas":', deltasJson, "}"));
         vm.writeFile(storageFile, storageJson);
     }
@@ -387,7 +391,7 @@ contract BaseTest is Test {
 
         string memory fileName = string(
             abi.encodePacked(
-                "data/results/partial_", tag, "_", vm.toString(block.timestamp), "_", vm.toString(block.number), ".json"
+                _getOutputDir(), "partial_", tag, "_", vm.toString(block.timestamp), "_", vm.toString(block.number), ".json"
             )
         );
 
