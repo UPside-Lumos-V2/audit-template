@@ -183,7 +183,14 @@ contract BaseTest is Test {
 
         string memory fileName = string(
             abi.encodePacked(
-                _getOutputDir(), "result_", tag, "_", vm.toString(block.timestamp), "_", vm.toString(block.number), ".json"
+                _getOutputDir(),
+                "result_",
+                tag,
+                "_",
+                vm.toString(block.timestamp),
+                "_",
+                vm.toString(block.number),
+                ".json"
             )
         );
 
@@ -224,7 +231,14 @@ contract BaseTest is Test {
 
         string memory fileName = string(
             abi.encodePacked(
-                _getOutputDir(), "result_", tag, "_", vm.toString(block.timestamp), "_", vm.toString(block.number), ".json"
+                _getOutputDir(),
+                "result_",
+                tag,
+                "_",
+                vm.toString(block.timestamp),
+                "_",
+                vm.toString(block.number),
+                ".json"
             )
         );
 
@@ -291,8 +305,9 @@ contract BaseTest is Test {
         }
         mitsJson = string(abi.encodePacked(mitsJson, "]"));
 
-        string memory classFile =
-            string(abi.encodePacked(_getOutputDir(), "classification_", tag, "_", vm.toString(block.timestamp), ".json"));
+        string memory classFile = string(
+            abi.encodePacked(_getOutputDir(), "classification_", tag, "_", vm.toString(block.timestamp), ".json")
+        );
         string memory finalJson = string(
             abi.encodePacked(
                 '{"vulnerabilities":', vulnsJson, ',"attack_vectors":', vectorsJson, ',"mitigations":', mitsJson, "}"
@@ -391,7 +406,14 @@ contract BaseTest is Test {
 
         string memory fileName = string(
             abi.encodePacked(
-                _getOutputDir(), "partial_", tag, "_", vm.toString(block.timestamp), "_", vm.toString(block.number), ".json"
+                _getOutputDir(),
+                "partial_",
+                tag,
+                "_",
+                vm.toString(block.timestamp),
+                "_",
+                vm.toString(block.number),
+                ".json"
             )
         );
 
