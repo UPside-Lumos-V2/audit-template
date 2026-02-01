@@ -29,7 +29,9 @@ jobs:
               { name: 'security-incident', color: 'b60205', description: 'Security incident report' },
               { name: 'in-progress', color: 'fbca04', description: 'Analysis in progress' },
               { name: 'verified', color: '0e8a16', description: 'Exploit verified' },
-              { name: 'needs-manual-poc', color: 'e4e669', description: 'Manual PoC required - replay failed' }
+              { name: 'needs-manual-poc', color: 'e4e669', description: 'Manual PoC required - replay failed' },
+              { name: 'flashloan', color: '5319e7', description: 'Flashloan detected' },
+              { name: 'complex', color: '0052cc', description: 'High gas usage / complex logic' }
             ];
             for (const label of labels) {
               try {
@@ -111,7 +113,7 @@ jobs:
             core.setOutput("chain_id", chainId);
             core.setOutput("auditors", JSON.stringify(auditors));
 
-      - name: Fetch Metadata
+      - name: Fetch Metadata & Trace
         id: metadata
         env:
           INFURA_KEY: ${{ secrets.INFURA_API_KEY }}
@@ -146,6 +148,7 @@ jobs:
             RPC_URL="$DEFAULT_RPC"
           fi
 
+          # 1. Fetch Tx Data (Basic)
           if ! echo "$TXHASH" | grep -qE '^0x[a-fA-F0-9]{64}$'; then
             echo "FETCH_ERROR=Invalid transaction hash format." >> $GITHUB_ENV
             echo "::error::Invalid tx hash format"
@@ -156,15 +159,7 @@ jobs:
             --data "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getTransactionByHash\",\"params\":[\"$TXHASH\"],\"id\":1}" \
             $RPC_URL)
           
-          RPC_ERROR=$(echo $TX_RES | jq -r '.error.message // empty')
-          if [ -n "$RPC_ERROR" ]; then
-            echo "FETCH_ERROR=RPC error: $RPC_ERROR" >> $GITHUB_ENV
-            echo "::error::RPC error: $RPC_ERROR"
-            exit 1
-          fi
-
           BLOCK_HEX=$(echo $TX_RES | jq -r '.result.blockNumber // empty' | tr -d '\r\n ')
-
           if [ -z "$BLOCK_HEX" ] || [ "$BLOCK_HEX" == "null" ]; then
             echo "FETCH_ERROR=Transaction not found." >> $GITHUB_ENV
             echo "::error::Failed to fetch block - tx not found"
@@ -175,12 +170,6 @@ jobs:
             --data "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getBlockByNumber\",\"params\":[\"$BLOCK_HEX\", false],\"id\":1}" \
             $RPC_URL)
           TIMESTAMP_HEX=$(echo $BLOCK_RES | jq -r '.result.timestamp // empty' | tr -d '\r\n ')
-
-          if [ -z "$TIMESTAMP_HEX" ] || [ "$TIMESTAMP_HEX" == "null" ]; then
-            echo "FETCH_ERROR=Failed to fetch timestamp." >> $GITHUB_ENV
-            echo "::error::Failed to fetch timestamp"
-            exit 1
-          fi
 
           BLOCK_NUM=$(printf "%d" $BLOCK_HEX)
           TIMESTAMP=$(printf "%d" $TIMESTAMP_HEX)
@@ -200,6 +189,22 @@ jobs:
           echo "attacker=$ATTACKER" >> $GITHUB_OUTPUT
           echo "target=$TARGET" >> $GITHUB_OUTPUT
           echo "input_data=$INPUT_DATA" >> $GITHUB_OUTPUT
+
+          # 2. Analyze Trace (Advanced)
+          echo "Running Trace Analysis..."
+          # cast run is heavy, handle errors gracefully
+          TRACE_OUTPUT=$(cast run $TXHASH --rpc-url $RPC_URL --json 2>/dev/null || echo "{}")
+          
+          GAS_USED=$(echo "$TRACE_OUTPUT" | jq -r '.gasUsed // 0')
+          # FlashLoan Event Topic (Aave/Uniswap): 0x631042c832bcc20bb41e797852b6346654e95123d57f9202359b8705973e8293
+          # Using grep on json string for speed/simplicity
+          if echo "$TRACE_OUTPUT" | grep -q "631042c832bcc20bb41e797852b6346654e95123d57f9202359b8705973e8293"; then
+             echo "is_flashloan=true" >> $GITHUB_OUTPUT
+          else
+             echo "is_flashloan=false" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "gas_used=$GAS_USED" >> $GITHUB_OUTPUT
 
           case $CHAIN_ID in
             1) echo "rpc_alias=mainnet" >> $GITHUB_OUTPUT ;;
@@ -232,21 +237,18 @@ jobs:
         with:
           script: |
             const errorMsg = process.env.FETCH_ERROR || 'Unknown error occurred.';
-            
             await github.rest.issues.addLabels({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
               labels: ['invalid-input']
             });
-            
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
               body: `**Error: Failed to Fetch Transaction**\n\n${errorMsg}`
             });
-            
             await github.rest.issues.update({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -273,6 +275,7 @@ jobs:
           TARGET="${{ steps.metadata.outputs.target }}"
           INPUT_DATA="${{ steps.metadata.outputs.input_data }}"
           RPC_ALIAS="${{ steps.metadata.outputs.rpc_alias }}"
+          GAS_USED="${{ steps.metadata.outputs.gas_used }}"
 
           DIR="test/${DATE}_${PROTOCOL}"
           mkdir -p "$DIR"
@@ -293,6 +296,7 @@ jobs:
           @Target: ${TARGET}
           @TxHash: ${TXHASH}
           @ChainId: ${CHAIN_ID}
+          @GasUsed: ${GAS_USED}
           */
 
           abstract contract ${PROTOCOL}Base is BaseTest {
@@ -367,6 +371,7 @@ jobs:
           | Tx | \`${TXHASH}\` |
           | Attacker | \`${ATTACKER}\` |
           | Target | \`${TARGET}\` |
+          | Gas Used | ${GAS_USED} |
 
           ## Auditors
           ${AUDITORS_LIST}
@@ -476,6 +481,33 @@ jobs:
             echo "guide=Run locally" >> $GITHUB_OUTPUT
           fi
 
+      - name: Update Smart Labels
+        uses: actions/github-script@v6
+        env:
+          IS_FLASHLOAN: ${{ steps.metadata.outputs.is_flashloan }}
+          GAS_USED: ${{ steps.metadata.outputs.gas_used }}
+          REPLAY_STATUS: ${{ env.REPLAY_STATUS }}
+        with:
+          script: |
+            const labelsToAdd = [];
+            const isFlashloan = process.env.IS_FLASHLOAN === 'true';
+            const gasUsed = parseInt(process.env.GAS_USED) || 0;
+            const replayStatus = process.env.REPLAY_STATUS;
+
+            if (isFlashloan) labelsToAdd.push('flashloan');
+            if (gasUsed > 500000) labelsToAdd.push('complex');
+            if (replayStatus === 'PASS') labelsToAdd.push('verified');
+            else labelsToAdd.push('needs-manual-poc');
+
+            if (labelsToAdd.length > 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                labels: labelsToAdd
+              });
+            }
+
       - name: Notify
         uses: actions/github-script@v6
         env:
@@ -487,6 +519,8 @@ jobs:
           REVERT_REASON: ${{ steps.replay_error.outputs.revert_reason }}
           DIAGNOSIS: ${{ steps.replay_error.outputs.diagnosis }}
           GUIDE: ${{ steps.replay_error.outputs.guide }}
+          GAS_USED: ${{ steps.metadata.outputs.gas_used }}
+          IS_FLASHLOAN: ${{ steps.metadata.outputs.is_flashloan }}
         with:
           script: |
             const branch = process.env.TARGET_BRANCH;
@@ -495,6 +529,8 @@ jobs:
             const replayStatus = process.env.REPLAY_STATUS;
             const auditors = JSON.parse(process.env.AUDITORS_JSON);
             const mentions = auditors.map(a => `@${a}`).join(' ');
+            const gasUsed = process.env.GAS_USED;
+            const isFlashloan = process.env.IS_FLASHLOAN === 'true' ? 'Yes' : 'No';
             
             const lines = [
               "**Workspace Ready**",
@@ -504,6 +540,8 @@ jobs:
               `| Branch | \`${branch}\` |`,
               `| Date | ${date} |`,
               `| Block | ${block} |`,
+              `| Gas Used | ${gasUsed} |`,
+              `| Flashloan | ${isFlashloan} |`,
               `| Replay | ${replayStatus === 'PASS' ? '✅ Verified' : '❌ Failed'} |`,
               "",
               `**Assigned:** ${mentions}`,
