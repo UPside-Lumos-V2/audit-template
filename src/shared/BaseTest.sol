@@ -168,9 +168,18 @@ contract BaseTest is Test {
 
         string memory finalJson = vm.serializeBool(jsonObj, "success", true);
 
+        // Determine output directory based on environment
+        // CI=true -> verified/, Local -> local/
+        string memory outputDir = "data/local/";
+        try vm.envString("CI") returns (string memory val) {
+            if (keccak256(abi.encodePacked(val)) == keccak256(abi.encodePacked("true"))) {
+                outputDir = "data/verified/";
+            }
+        } catch {}
+
         string memory fileName = string(
             abi.encodePacked(
-                "data/results/result_", tag, "_", vm.toString(block.timestamp), "_", vm.toString(block.number), ".json"
+                outputDir, "result_", tag, "_", vm.toString(block.timestamp), "_", vm.toString(block.number), ".json"
             )
         );
 

@@ -1,3 +1,7 @@
+# Data Directories
+data/local/
+data/verified/
+
 # Foundry
 out/
 cache/
