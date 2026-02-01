@@ -29,7 +29,10 @@ jobs:
               { name: 'security-incident', color: 'b60205', description: 'Security incident report' },
               { name: 'in-progress', color: 'fbca04', description: 'Analysis in progress' },
               { name: 'verified', color: '0e8a16', description: 'Exploit verified' },
-              { name: 'completed', color: '5319e7', description: 'Analysis completed' }
+              { name: 'completed', color: '5319e7', description: 'Analysis completed' },
+              { name: 'invalid-input', color: 'd93f0b', description: 'Invalid tx hash or input' },
+              { name: 'needs-assignee', color: 'c5def5', description: 'Assignee required' },
+              { name: 'needs-manual-poc', color: 'e4e669', description: 'Manual PoC required - replay failed' }
             ];
             for (const label of labels) {
               try {
@@ -77,6 +80,18 @@ jobs:
 
             const auditors = assignees.map(a => a.login).filter(s => s);
             if (auditors.length === 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                labels: ['needs-assignee']
+              });
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: `**Error: No Assignee**\n\nPlease assign at least one auditor to this issue using the "Assignees" panel on the right.\n\nOnce assigned, close and reopen this issue to trigger the workflow again.`
+              });
               core.setFailed("At least one assignee (auditor) required.");
               return;
             }
@@ -138,13 +153,30 @@ jobs:
             RPC_URL="$DEFAULT_RPC"
           fi
 
+          # Validate tx hash format
+          if ! echo "$TXHASH" | grep -qE '^0x[a-fA-F0-9]{64}$'; then
+            echo "FETCH_ERROR=Invalid transaction hash format. Expected 0x followed by 64 hex characters." >> $GITHUB_ENV
+            echo "::error::Invalid tx hash format"
+            exit 1
+          fi
+
           TX_RES=$(curl -s -X POST -H "Content-Type: application/json" \
             --data "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getTransactionByHash\",\"params\":[\"$TXHASH\"],\"id\":1}" \
             $RPC_URL)
+          
+          # Check for RPC error
+          RPC_ERROR=$(echo $TX_RES | jq -r '.error.message // empty')
+          if [ -n "$RPC_ERROR" ]; then
+            echo "FETCH_ERROR=RPC error: $RPC_ERROR. Please check the chain selection or try again later." >> $GITHUB_ENV
+            echo "::error::RPC error: $RPC_ERROR"
+            exit 1
+          fi
+
           BLOCK_HEX=$(echo $TX_RES | jq -r '.result.blockNumber // empty' | tr -d '\r\n ')
 
           if [ -z "$BLOCK_HEX" ] || [ "$BLOCK_HEX" == "null" ]; then
-            echo "::error::Failed to fetch block."
+            echo "FETCH_ERROR=Transaction not found on chain $CHAIN_ID. Please verify the tx hash and chain selection." >> $GITHUB_ENV
+            echo "::error::Failed to fetch block - tx not found"
             exit 1
           fi
 
@@ -154,7 +186,8 @@ jobs:
           TIMESTAMP_HEX=$(echo $BLOCK_RES | jq -r '.result.timestamp // empty' | tr -d '\r\n ')
 
           if [ -z "$TIMESTAMP_HEX" ] || [ "$TIMESTAMP_HEX" == "null" ]; then
-            echo "::error::Failed to fetch timestamp."
+            echo "FETCH_ERROR=Failed to fetch block timestamp. RPC may be temporarily unavailable." >> $GITHUB_ENV
+            echo "::error::Failed to fetch timestamp"
             exit 1
           fi
 
@@ -202,6 +235,41 @@ jobs:
           BRANCH_NAME="incident/${DATE_STR}_${{ steps.parse.outputs.protocol }}"
           BRANCH_NAME=${BRANCH_NAME// /-}
           echo "TARGET_BRANCH=$BRANCH_NAME" >> $GITHUB_ENV
+
+      - name: Handle Fetch Error
+        if: failure() && steps.metadata.outcome == 'failure'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const errorMsg = process.env.FETCH_ERROR || 'Unknown error occurred while fetching transaction metadata.';
+            
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: ['invalid-input']
+            });
+            
+            await github.rest.issues.removeLabel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              name: 'in-progress'
+            }).catch(() => {});
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `**Error: Failed to Fetch Transaction**\n\n${errorMsg}\n\n**Checklist:**\n- [ ] Verify the transaction hash is correct\n- [ ] Verify the chain selection matches the transaction\n- [ ] Check if the transaction exists on a block explorer\n\nPlease create a new issue with the correct information.`
+            });
+            
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              state: 'closed'
+            });
 
       - name: Generate Templates
         run: |
@@ -259,11 +327,50 @@ jobs:
           import "./${PROTOCOL}Base.sol";
 
           contract ReplayTest is ${PROTOCOL}Base {
-              function testReplay() public recordMetrics("REPLAY") {
-                  beneficiary = ${ATTACKER};
-                  vm.startPrank(${ATTACKER});
-                  (bool success, ) = ${TARGET}.call(hex"${INPUT_HEX}");
-                  require(success, "Replay failed");
+              // Constants for replay
+              address constant ATTACKER_ADDR = ${ATTACKER};
+              address constant TARGET_ADDR = ${TARGET};
+              bytes constant INPUT_DATA = hex"${INPUT_HEX}";
+
+              function testReplay() public {
+                  beneficiary = ATTACKER_ADDR;
+                  
+                  if (fundingToken == address(0)) vm.deal(address(this), 0);
+                  _logTokenBalance(fundingToken, beneficiary, "[REPLAY] Before");
+                  
+                  uint256 gasBefore = gasleft();
+                  try this._executeReplay() {
+                      // Success - capture metrics
+                      uint256 gasUsed = gasBefore - gasleft();
+                      (string memory symbol, uint256 balance, uint8 decimals) = _getTokenData(fundingToken, beneficiary);
+                      _logTokenBalance(fundingToken, beneficiary, "[REPLAY] After");
+                      _writeExecutionResult("REPLAY", gasUsed, balance, symbol, decimals);
+                  } catch Error(string memory reason) {
+                      // Failed - capture partial data for debugging
+                      uint256 gasUsed = gasBefore - gasleft();
+                      _writePartialResult("REPLAY_FAILED", reason, gasUsed);
+                      emit log_string(string(abi.encodePacked("[REPLAY] Reverted: ", reason)));
+                      revert(reason); // Re-throw to mark test as failed
+                  } catch (bytes memory lowLevelData) {
+                      uint256 gasUsed = gasBefore - gasleft();
+                      _writePartialResult("REPLAY_FAILED", "Low-level revert", gasUsed);
+                      emit log_string("[REPLAY] Low-level revert");
+                      revert("Low-level revert");
+                  }
+              }
+
+              function _executeReplay() external {
+                  vm.startPrank(ATTACKER_ADDR);
+                  (bool success, bytes memory returnData) = TARGET_ADDR.call(INPUT_DATA);
+                  if (!success) {
+                      // Try to decode revert reason
+                      if (returnData.length > 0) {
+                          assembly {
+                              revert(add(returnData, 32), mload(returnData))
+                          }
+                      }
+                      revert("Replay failed");
+                  }
                   vm.stopPrank();
               }
           }
@@ -298,8 +405,21 @@ jobs:
           import "./${PROTOCOL}Base.sol";
 
           contract PoC_${auditor} is ${PROTOCOL}Base {
-              function testExploit() public exploit(VulnerabilityType.UNKNOWN) {
-                  // TODO: select vulnerability type and implement exploit
+              function testExploit() public exploit {
+                  // === Classification (multiple selections allowed) ===
+                  addVulnerability(VulnerabilityType.UNKNOWN);
+                  addAttackVector(AttackVector.UNKNOWN);
+                  addMitigation(Mitigation.UNKNOWN);
+                  
+                  // === Profit Recording (multiple tokens) ===
+                  // addProfit(address(0), 100 ether);  // ETH
+                  // addProfit(USDC, 50_000e6);         // ERC20
+                  
+                  // === Storage Tracking ===
+                  // trackSlot(bytes32(uint256(0)));
+                  
+                  // === Exploit Implementation ===
+                  
               }
           }
           SOLEOF
@@ -359,6 +479,48 @@ jobs:
           git commit -m "init: ${{ steps.parse.outputs.protocol }}"
           git push origin ${{ env.TARGET_BRANCH }}
 
+      - name: Extract Replay Error
+        if: env.REPLAY_STATUS == 'FAIL'
+        id: replay_error
+        run: |
+          if [ -f replay_result.txt ]; then
+            # Extract revert reason from forge output
+            REVERT_REASON=$(grep -oP '(?<=\[Revert\] ).*' replay_result.txt | head -1 || echo "Unknown")
+            echo "revert_reason=$REVERT_REASON" >> $GITHUB_OUTPUT
+            
+            # Generate diagnosis based on common patterns
+            case "$REVERT_REASON" in
+              *"Owner"*|*"owner"*|*"Ownable"*)
+                echo "diagnosis=Permission issue - caller is not the owner" >> $GITHUB_OUTPUT
+                echo "guide=Use vm.prank(ownerAddress) to impersonate the owner" >> $GITHUB_OUTPUT
+                ;;
+              *"balance"*|*"Insufficient"*|*"underflow"*)
+                echo "diagnosis=Insufficient balance or funds" >> $GITHUB_OUTPUT
+                echo "guide=Use vm.deal(address, amount) for ETH or deal(token, address, amount) for ERC20" >> $GITHUB_OUTPUT
+                ;;
+              *"allowance"*|*"Allowance"*|*"approve"*)
+                echo "diagnosis=Token allowance not set" >> $GITHUB_OUTPUT
+                echo "guide=Call token.approve(spender, amount) before the exploit" >> $GITHUB_OUTPUT
+                ;;
+              *"time"*|*"Time"*|*"lock"*|*"expired"*)
+                echo "diagnosis=Time-based restriction" >> $GITHUB_OUTPUT
+                echo "guide=Use vm.warp(timestamp) to advance block time" >> $GITHUB_OUTPUT
+                ;;
+              *"paused"*|*"Paused"*)
+                echo "diagnosis=Contract is paused" >> $GITHUB_OUTPUT
+                echo "guide=Fork from a block before the pause, or use vm.store to modify pause state" >> $GITHUB_OUTPUT
+                ;;
+              *)
+                echo "diagnosis=Custom revert condition" >> $GITHUB_OUTPUT
+                echo "guide=Analyze the target contract to understand the revert condition" >> $GITHUB_OUTPUT
+                ;;
+            esac
+          else
+            echo "revert_reason=Unknown" >> $GITHUB_OUTPUT
+            echo "diagnosis=Could not extract revert reason" >> $GITHUB_OUTPUT
+            echo "guide=Run forge test locally with -vvvv for detailed trace" >> $GITHUB_OUTPUT
+          fi
+
       - name: Update Labels
         uses: actions/github-script@v6
         with:
@@ -370,6 +532,13 @@ jobs:
                 repo: context.repo.repo,
                 issue_number: context.issue.number,
                 labels: ['verified']
+              });
+            } else {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                labels: ['needs-manual-poc']
               });
             }
 
@@ -383,8 +552,12 @@ jobs:
             const replayStatus = process.env.REPLAY_STATUS;
             const auditors = JSON.parse('${{ steps.parse.outputs.auditors }}');
             const mentions = auditors.map(a => `@${a}`).join(' ');
+            
+            const revertReason = "${{ steps.replay_error.outputs.revert_reason }}";
+            const diagnosis = "${{ steps.replay_error.outputs.diagnosis }}";
+            const guide = "${{ steps.replay_error.outputs.guide }}";
 
-            const comment = `**Workspace Ready**
+            let comment = `**Workspace Ready**
 
             | Item | Value |
             |------|-------|
@@ -398,6 +571,14 @@ jobs:
             \`\`\`
             git fetch origin && git checkout ${branch}
             \`\`\``;
+            
+            if (replayStatus !== 'PASS' && revertReason) {
+              comment += `\n\n---\n\n**Replay Failed - Manual PoC Required**\n\n| Analysis | Details |\n|----------|---------|`;
+              comment += `\n| Revert Reason | \`${revertReason}\` |`;
+              comment += `\n| Diagnosis | ${diagnosis} |`;
+              comment += `\n| Suggested Fix | ${guide} |`;
+              comment += `\n\n**Next Steps:**\n1. Checkout the branch\n2. Edit \`PoC_*.t.sol\` to add pre-conditions\n3. Run \`forge test --match-test testExploit -vvvv\`\n4. Push changes to trigger CI verification`;
+            }
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
