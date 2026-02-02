@@ -278,10 +278,12 @@ jobs:
           INPUT_DATA="${{ steps.metadata.outputs.input_data }}"
           RPC_ALIAS="${{ steps.metadata.outputs.rpc_alias }}"
           GAS_USED="${{ steps.metadata.outputs.gas_used }}"
+          LOGS_COUNT="${{ steps.metadata.outputs.logs_count }}"
 
           DIR="test/${DATE}_${PROTOCOL}"
           mkdir -p "$DIR"
           mkdir -p "data/verified"
+          mkdir -p "data/local"
 
           cat > "$DIR/${PROTOCOL}Base.sol" << SOLEOF
           // SPDX-License-Identifier: UNLICENSED
@@ -461,7 +463,11 @@ jobs:
         id: replay_error
         run: |
           if [ -f replay_result.txt ]; then
-            REVERT_REASON=$(grep -oP '(?<=\[Revert\] ).*' replay_result.txt | head -1 || echo "Unknown")
+            # Match [Revert], [NotActivated], EvmError patterns
+            REVERT_REASON=$(grep -oP '(\[Revert\] |\[NotActivated\] |EvmError: )\K.*' replay_result.txt | head -1)
+            if [ -z "$REVERT_REASON" ]; then
+              REVERT_REASON="Unknown"
+            fi
             echo "revert_reason=$REVERT_REASON" >> $GITHUB_OUTPUT
             
             case "$REVERT_REASON" in
@@ -472,6 +478,10 @@ jobs:
               *"balance"*|*"Insufficient"*|*"underflow"*)
                 echo "diagnosis=Insufficient balance" >> $GITHUB_OUTPUT
                 echo "guide=Use vm.deal or deal()" >> $GITHUB_OUTPUT
+                ;;
+              *"NotActivated"*)
+                echo "diagnosis=EVM opcode not supported" >> $GITHUB_OUTPUT
+                echo "guide=Update evm_version in foundry.toml (try cancun or prague)" >> $GITHUB_OUTPUT
                 ;;
               *)
                 echo "diagnosis=Unknown revert" >> $GITHUB_OUTPUT
