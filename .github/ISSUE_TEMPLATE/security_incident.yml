@@ -1,13 +1,14 @@
 name: Security Incident
 description: Report a DeFi security incident for analysis
+title: "[Incident] "
 labels: ["security-incident"]
 body:
   - type: input
     id: protocol
     attributes:
       label: Protocol
-      description: Target protocol name (e.g. Seneca)
-      placeholder: Seneca
+      description: Target protocol name (e.g. Uniswap)
+      placeholder: Uniswap
     validations:
       required: true
 
