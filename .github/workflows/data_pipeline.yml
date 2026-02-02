@@ -10,8 +10,10 @@ on:
 
 jobs:
   # PR: Compliance Check only (lightweight validation)
+  # Fork PR에서는 GITHUB_TOKEN이 포크 저장소를 읽을 수 없어 checkout 시 "Repository not found" 발생.
+  # 같은 저장소 내 브랜치 PR에서만 실행.
   compliance:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.id == github.event.pull_request.base.repo.id
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
