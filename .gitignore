@@ -10,6 +10,6 @@ dist/
 
 # VS Code
 .vscode/
-
+.claude/
 # System
 .DS_Store
