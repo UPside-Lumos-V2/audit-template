@@ -190,21 +190,23 @@ jobs:
           echo "target=$TARGET" >> $GITHUB_OUTPUT
           echo "input_data=$INPUT_DATA" >> $GITHUB_OUTPUT
 
-          # 2. Analyze Trace (Advanced)
-          echo "Running Trace Analysis..."
-          # cast run is heavy, handle errors gracefully
-          TRACE_OUTPUT=$(cast run $TXHASH --rpc-url $RPC_URL --json 2>/dev/null || echo "{}")
-          
-          GAS_USED=$(echo "$TRACE_OUTPUT" | jq -r '.gasUsed // 0')
+          # 2. Analyze Receipt (lighter than cast run, works with public RPCs)
+          echo "Fetching Transaction Receipt..."
+          RECEIPT=$(cast receipt $TXHASH --rpc-url $RPC_URL --json 2>/dev/null || echo "{}")
+
+          GAS_USED_HEX=$(echo "$RECEIPT" | jq -r '.gasUsed // "0x0"')
+          GAS_USED=$((GAS_USED_HEX))
+          LOGS_COUNT=$(echo "$RECEIPT" | jq '[.logs[].topics[0]] | length')
+
           # FlashLoan Event Topic (Aave/Uniswap): 0x631042c832bcc20bb41e797852b6346654e95123d57f9202359b8705973e8293
-          # Using grep on json string for speed/simplicity
-          if echo "$TRACE_OUTPUT" | grep -q "631042c832bcc20bb41e797852b6346654e95123d57f9202359b8705973e8293"; then
+          if echo "$RECEIPT" | jq -e '[.logs[].topics[0]] | any(. == "0x631042c832bcc20bb41e797852b6346654e95123d57f9202359b8705973e8293")' > /dev/null 2>&1; then
              echo "is_flashloan=true" >> $GITHUB_OUTPUT
           else
              echo "is_flashloan=false" >> $GITHUB_OUTPUT
           fi
-          
+
           echo "gas_used=$GAS_USED" >> $GITHUB_OUTPUT
+          echo "logs_count=$LOGS_COUNT" >> $GITHUB_OUTPUT
 
           case $CHAIN_ID in
             1) echo "rpc_alias=mainnet" >> $GITHUB_OUTPUT ;;
@@ -372,6 +374,7 @@ jobs:
           | Attacker | \`${ATTACKER}\` |
           | Target | \`${TARGET}\` |
           | Gas Used | ${GAS_USED} |
+          | Logs | ${LOGS_COUNT} |
 
           ## Auditors
           ${AUDITORS_LIST}
@@ -441,7 +444,7 @@ jobs:
             export SEI_RPC_URL="https://evm.sei.io"
             export PALM_RPC_URL="https://palm-mainnet.public.blastapi.io"
           fi
-          if forge test --match-test testReplay -vvv 2>&1 | tee replay_result.txt | grep -q "PASS"; then
+          if forge test --match-test testReplay -vvv --silent 2>&1 | tee replay_result.txt | grep -q "PASS"; then
             echo "REPLAY_STATUS=PASS" >> $GITHUB_ENV
           else
             echo "REPLAY_STATUS=FAIL" >> $GITHUB_ENV
@@ -520,6 +523,7 @@ jobs:
           DIAGNOSIS: ${{ steps.replay_error.outputs.diagnosis }}
           GUIDE: ${{ steps.replay_error.outputs.guide }}
           GAS_USED: ${{ steps.metadata.outputs.gas_used }}
+          LOGS_COUNT: ${{ steps.metadata.outputs.logs_count }}
           IS_FLASHLOAN: ${{ steps.metadata.outputs.is_flashloan }}
         with:
           script: |
@@ -530,6 +534,7 @@ jobs:
             const auditors = JSON.parse(process.env.AUDITORS_JSON);
             const mentions = auditors.map(a => `@${a}`).join(' ');
             const gasUsed = process.env.GAS_USED;
+            const logsCount = process.env.LOGS_COUNT;
             const isFlashloan = process.env.IS_FLASHLOAN === 'true' ? 'Yes' : 'No';
             
             const lines = [
@@ -541,6 +546,7 @@ jobs:
               `| Date | ${date} |`,
               `| Block | ${block} |`,
               `| Gas Used | ${gasUsed} |`,
+              `| Logs | ${logsCount} |`,
               `| Flashloan | ${isFlashloan} |`,
               `| Replay | ${replayStatus === 'PASS' ? '✅ Verified' : '❌ Failed'} |`,
               "",
