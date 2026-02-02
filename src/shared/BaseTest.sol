@@ -9,6 +9,7 @@ contract BaseTest is Test {
     address fundingToken = address(0);
     address target = address(0);
     address beneficiary = address(0);
+    bytes32 txHash = bytes32(0);  // Original exploit tx hash for dedup
 
     // 3-Dimensional Classification (multiple selections supported)
     VulnerabilityType[] internal vulnerabilityTypes;
@@ -180,6 +181,7 @@ contract BaseTest is Test {
 
         uint256 victimCodeSize = target == address(0) ? 0 : target.code.length;
         vm.serializeUint(jsonObj, "victim_code_size", victimCodeSize);
+        vm.serializeBytes32(jsonObj, "tx_hash", txHash);
 
         string memory finalJson = vm.serializeBool(jsonObj, "success", true);
 

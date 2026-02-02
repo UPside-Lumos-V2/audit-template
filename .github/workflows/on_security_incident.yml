@@ -307,6 +307,7 @@ jobs:
               function setUp() public virtual {
                   vm.createSelectFork("${RPC_ALIAS}", ${FORK_BLOCK});
                   target = ${TARGET};
+                  txHash = ${TXHASH};
               }
           }
           SOLEOF
