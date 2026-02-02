@@ -144,7 +144,7 @@ contract BaseTest is Test {
 
     // ==================== Result Writers ====================
 
-    function _getOutputDir() internal view returns (string memory) {
+    function _getOutputDir() internal returns (string memory) {
         // Default to local directory
         string memory outputDir = "data/local/";
         // Check for CI environment variable
@@ -154,6 +154,8 @@ contract BaseTest is Test {
                 outputDir = "data/verified/";
             }
         } catch {}
+        // Ensure directory exists (recursive creation)
+        try vm.createDir(outputDir, true) {} catch {}
         return outputDir;
     }
 

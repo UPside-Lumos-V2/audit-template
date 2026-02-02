@@ -463,8 +463,8 @@ jobs:
         id: replay_error
         run: |
           if [ -f replay_result.txt ]; then
-            # Match [Revert], [NotActivated], EvmError patterns
-            REVERT_REASON=$(grep -oP '(\[Revert\] |\[NotActivated\] |EvmError: )\K.*' replay_result.txt | head -1)
+            # Match [Revert], [NotActivated], EvmError, vm.writeJson patterns
+            REVERT_REASON=$(grep -oP '(\[Revert\] |\[NotActivated\] |EvmError: |vm\.writeJson: )\K.*' replay_result.txt | head -1)
             if [ -z "$REVERT_REASON" ]; then
               REVERT_REASON="Unknown"
             fi
@@ -482,6 +482,10 @@ jobs:
               *"NotActivated"*)
                 echo "diagnosis=EVM opcode not supported" >> $GITHUB_OUTPUT
                 echo "guide=Update evm_version in foundry.toml (try cancun or prague)" >> $GITHUB_OUTPUT
+                ;;
+              *"No such file or directory"*|*"writeJson"*)
+                echo "diagnosis=Output directory missing" >> $GITHUB_OUTPUT
+                echo "guide=Directory auto-created on retry, or run: mkdir -p data/local data/verified" >> $GITHUB_OUTPUT
                 ;;
               *)
                 echo "diagnosis=Unknown revert" >> $GITHUB_OUTPUT
