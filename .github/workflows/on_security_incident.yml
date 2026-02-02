@@ -2,7 +2,7 @@ name: Security Incident Handler
 
 on:
   issues:
-    types: [opened]
+    types: [opened, labeled]
 
 permissions:
   contents: write
