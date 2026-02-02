@@ -279,7 +279,7 @@ jobs:
 
           DIR="test/${DATE}_${PROTOCOL}"
           mkdir -p "$DIR"
-          mkdir -p "data/results"
+          mkdir -p "data/verified"
 
           cat > "$DIR/${PROTOCOL}Base.sol" << SOLEOF
           // SPDX-License-Identifier: UNLICENSED
