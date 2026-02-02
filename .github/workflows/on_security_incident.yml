@@ -446,7 +446,7 @@ jobs:
             export SEI_RPC_URL="https://evm.sei.io"
             export PALM_RPC_URL="https://palm-mainnet.public.blastapi.io"
           fi
-          if forge test --match-test testReplay -vvv --silent 2>&1 | tee replay_result.txt | grep -q "PASS"; then
+          if forge test --match-test testReplay -vvv 2>&1 | tee replay_result.txt | grep -q "PASS"; then
             echo "REPLAY_STATUS=PASS" >> $GITHUB_ENV
           else
             echo "REPLAY_STATUS=FAIL" >> $GITHUB_ENV
