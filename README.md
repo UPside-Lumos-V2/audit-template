@@ -1,6 +1,7 @@
 # DeFi Security Incident Template
 
 DeFi 해킹 사건 분석 및 ML 학습용 데이터셋 구축 템플릿.
+(우선 간단한 라벨링 피처들만 수집하다가 피드백 받아서 고도화 예정)
 
 ## Workflow
 
