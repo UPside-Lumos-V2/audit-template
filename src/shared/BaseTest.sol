@@ -36,37 +36,55 @@ contract BaseTest is Test {
         chainIdToInfo[11_297_108_109] = ChainInfo("PALM", "PALM");
     }
 
-    function getChainSymbol(
-        uint256 chainId
-    ) internal view returns (string memory symbol) {
+    function getChainSymbol(uint256 chainId) internal view returns (string memory symbol) {
         symbol = chainIdToInfo[chainId].symbol;
         if (bytes(symbol).length == 0) symbol = "ETH";
     }
 
+    /// @dev Automatically tracks fundingToken balance and logs profit with proper decimals
     modifier balanceLog() {
         address user = beneficiary == address(0) ? address(this) : beneficiary;
         uint256 startBalance;
+        uint8 decimals;
+        string memory symbol;
 
         if (fundingToken == address(0)) {
             vm.deal(user, 0);
             startBalance = user.balance;
+            decimals = 18;
+            symbol = getChainSymbol(block.chainid);
         } else {
             startBalance = IERC20(fundingToken).balanceOf(user);
+            try IERC20(fundingToken).decimals() returns (uint8 d) {
+                decimals = d;
+            } catch {
+                decimals = 18;
+            }
+            try IERC20(fundingToken).symbol() returns (string memory s) {
+                symbol = s;
+            } catch {
+                symbol = "TOKEN";
+            }
         }
 
-        emit log_named_uint("Before Balance", startBalance);
+        emit log_named_decimal_uint(
+            string(abi.encodePacked("Before Balance (", symbol, ")")), startBalance, decimals
+        );
         _;
 
         uint256 endBalance = fundingToken == address(0) ? user.balance : IERC20(fundingToken).balanceOf(user);
-        emit log_named_uint("After Balance", endBalance);
-        emit log_named_uint("Profit", endBalance > startBalance ? endBalance - startBalance : 0);
+
+        emit log_named_decimal_uint(string(abi.encodePacked("After Balance (", symbol, ")")), endBalance, decimals);
+
+        if (endBalance > startBalance) {
+            uint256 profit = endBalance - startBalance;
+            emit log_named_decimal_uint(string(abi.encodePacked("Profit (", symbol, ")")), profit, decimals);
+        }
     }
 }
 
 interface IERC20 {
-    function balanceOf(
-        address
-    ) external view returns (uint256);
+    function balanceOf(address) external view returns (uint256);
     function symbol() external view returns (string memory);
     function decimals() external view returns (uint8);
 }
