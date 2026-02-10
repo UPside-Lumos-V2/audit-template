@@ -36,7 +36,9 @@ contract BaseTest is Test {
         chainIdToInfo[11_297_108_109] = ChainInfo("PALM", "PALM");
     }
 
-    function getChainSymbol(uint256 chainId) internal view returns (string memory symbol) {
+    function getChainSymbol(
+        uint256 chainId
+    ) internal view returns (string memory symbol) {
         symbol = chainIdToInfo[chainId].symbol;
         if (bytes(symbol).length == 0) symbol = "ETH";
     }
@@ -67,9 +69,7 @@ contract BaseTest is Test {
             }
         }
 
-        emit log_named_decimal_uint(
-            string(abi.encodePacked("Before Balance (", symbol, ")")), startBalance, decimals
-        );
+        emit log_named_decimal_uint(string(abi.encodePacked("Before Balance (", symbol, ")")), startBalance, decimals);
         _;
 
         uint256 endBalance = fundingToken == address(0) ? user.balance : IERC20(fundingToken).balanceOf(user);
@@ -84,7 +84,9 @@ contract BaseTest is Test {
 }
 
 interface IERC20 {
-    function balanceOf(address) external view returns (uint256);
+    function balanceOf(
+        address
+    ) external view returns (uint256);
     function symbol() external view returns (string memory);
     function decimals() external view returns (uint8);
 }
