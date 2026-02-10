@@ -2,6 +2,7 @@
 pragma solidity ^0.8.0;
 
 import "forge-std/Test.sol";
+import "src/shared/interfaces.sol";
 
 contract BaseTest is Test {
     address fundingToken = address(0);
@@ -81,12 +82,4 @@ contract BaseTest is Test {
             emit log_named_decimal_uint(string(abi.encodePacked("Profit (", symbol, ")")), profit, decimals);
         }
     }
-}
-
-interface IERC20 {
-    function balanceOf(
-        address
-    ) external view returns (uint256);
-    function symbol() external view returns (string memory);
-    function decimals() external view returns (uint8);
 }
